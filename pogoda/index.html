@@ -200,24 +200,16 @@
   <header>
     <div class="header-left">
       <h1 id="page-title">🏔 Kraków <span>/ Poland</span></h1>
-      <div id="updated-at">Loading data…</div>
     </div>
     <button id="btn-station">📍 Change location</button>
   </header>
 
   <!-- Chart -->
   <div class="card">
-    <div class="section-title">Maximum temperatures — monthly</div>
     <div class="month-nav">
       <button id="btn-prev">← Back</button>
       <span class="month-label" id="chart-month-label">…</span>
       <button id="btn-next">Forward →</button>
-    </div>
-    <div class="chart-legend">
-      <div class="legend-item"><div class="legend-line current"></div><span>Max temp</span></div>
-      <div class="legend-item"><div class="legend-line" style="border-top:2px dashed #79c0ff;height:0;background:none"></div><span>Min temp</span></div>
-      <div class="legend-item"><div class="legend-line avg"></div><span>Avg 2021–2025</span></div>
-      <div class="legend-item"><div style="width:2px;height:14px;background:rgba(100,116,139,0.4);border-radius:1px"></div><span>Sun</span></div>
     </div>
     <div class="chart-wrap">
       <div class="spinner" id="chart-spinner">Loading data…</div>
@@ -232,7 +224,8 @@
   </div>
 
   <div class="attribution">
-    Data: <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a> — CC BY 4.0 •
+    <span id="updated-at"></span> •
+    Data: <a href="https://open-meteo.com/" target="_blank">Open-Meteo</a> CC BY 4.0 •
     Map: <a href="https://www.openstreetmap.org/" target="_blank">OpenStreetMap</a>
   </div>
 </div>
@@ -583,7 +576,7 @@ async function loadData() {
   ]);
 
   document.getElementById('updated-at').textContent =
-    `Updated: ${new Date().toLocaleString('en-GB',{timeZone:'Europe/Warsaw'})} • Open-Meteo`;
+    `Updated: ${new Date().toLocaleString('en-GB',{timeZone:'Europe/Warsaw'})}`;
 
   G.forecastData = forecastData;
   buildGlobalData(archiveYearData, forecastData, hist5yr);
