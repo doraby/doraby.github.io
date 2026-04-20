@@ -404,22 +404,23 @@ function buildGlobalData(archiveYear, forecastData, hist5yr) {
 
   if (hist5yr?.daily) {
     const {time, temperature_2m_max, temperature_2m_min} = hist5yr.daily;
-    const sumMax={}, cntMax={}, sumMin={}, cntMin={};
+    const valsMax={}, valsMin={};
     time.forEach((dt,i) => {
       const vMax = temperature_2m_max[i];
       if (vMax!==null && !isNaN(vMax)) {
         G.allActual.set(dt, vMax);
         const k = dt.slice(5);
-        sumMax[k] = (sumMax[k]||0)+vMax; cntMax[k] = (cntMax[k]||0)+1;
+        (valsMax[k] = valsMax[k]||[]).push(vMax);
       }
       const vMin = temperature_2m_min?.[i];
       if (vMin!==null && vMin!==undefined && !isNaN(vMin)) {
         const k = dt.slice(5);
-        sumMin[k] = (sumMin[k]||0)+vMin; cntMin[k] = (cntMin[k]||0)+1;
+        (valsMin[k] = valsMin[k]||[]).push(vMin);
       }
     });
-    Object.keys(sumMax).forEach(k => { G.avgByDay[k] = +(sumMax[k]/cntMax[k]).toFixed(1); });
-    Object.keys(sumMin).forEach(k => { G.avgByDayMin[k] = +(sumMin[k]/cntMin[k]).toFixed(1); });
+    const median = arr => { const s=[...arr].sort((a,b)=>a-b), m=s.length>>1; return s.length%2 ? +s[m].toFixed(1) : +((s[m-1]+s[m])/2).toFixed(1); };
+    Object.keys(valsMax).forEach(k => { G.avgByDay[k] = median(valsMax[k]); });
+    Object.keys(valsMin).forEach(k => { G.avgByDayMin[k] = median(valsMin[k]); });
   }
 
   if (archiveYear?.daily) {
@@ -538,9 +539,9 @@ function renderChart() {
         borderWidth: 2, pointRadius: 2, pointHoverRadius: 5, tension: 0.25, fill: true, spanGaps: false, order: 1 },
       { label: 'Min temp', data: dsMin, borderColor: '#79c0ff', backgroundColor: 'transparent',
         borderWidth: 1.5, borderDash: [3,3], pointRadius: 2, pointHoverRadius: 4, tension: 0.25, spanGaps: false, order: 2 },
-      { label: 'Avg max 2021–2025', data: dsAvg, borderColor: 'rgba(247,129,102,0.25)', borderWidth: 1.5,
+      { label: 'Median max 2021–2025', data: dsAvg, borderColor: 'rgba(247,129,102,0.25)', borderWidth: 1.5,
         borderDash: [5,4], backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 3, tension: 0.3, order: 3 },
-      { label: 'Avg min 2021–2025', data: dsAvgMin, borderColor: 'rgba(121,192,255,0.25)', borderWidth: 1.5,
+      { label: 'Median min 2021–2025', data: dsAvgMin, borderColor: 'rgba(121,192,255,0.25)', borderWidth: 1.5,
         borderDash: [5,4], backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 3, tension: 0.3, order: 4 }
     ]},
     options: {
