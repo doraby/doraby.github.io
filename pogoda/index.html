@@ -56,8 +56,8 @@
     .legend-item { display: flex; align-items: center; gap: 7px; color: var(--muted); }
     .legend-line { width: 28px; height: 2px; border-radius: 2px; }
     .legend-line.current { background: #f78166; }
-    .legend-line.avg { height: 0; border-top: 2px dashed rgba(247,129,102,0.5); }
-    .legend-line.avg-min { height: 0; border-top: 2px dashed rgba(121,192,255,0.5); }
+    .legend-line.avg { height: 0; border-top: 2px dashed rgba(247,129,102,0.25); }
+    .legend-line.avg-min { height: 0; border-top: 2px dashed rgba(121,192,255,0.25); }
     .chart-wrap { position: relative; height: 430px; }
 
     /* ── Table ── */
@@ -538,9 +538,9 @@ function renderChart() {
         borderWidth: 2, pointRadius: 2, pointHoverRadius: 5, tension: 0.25, fill: true, spanGaps: false, order: 1 },
       { label: 'Min temp', data: dsMin, borderColor: '#79c0ff', backgroundColor: 'transparent',
         borderWidth: 1.5, borderDash: [3,3], pointRadius: 2, pointHoverRadius: 4, tension: 0.25, spanGaps: false, order: 2 },
-      { label: 'Avg max 2021–2025', data: dsAvg, borderColor: 'rgba(247,129,102,0.5)', borderWidth: 1.5,
+      { label: 'Avg max 2021–2025', data: dsAvg, borderColor: 'rgba(247,129,102,0.25)', borderWidth: 1.5,
         borderDash: [5,4], backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 3, tension: 0.3, order: 3 },
-      { label: 'Avg min 2021–2025', data: dsAvgMin, borderColor: 'rgba(121,192,255,0.5)', borderWidth: 1.5,
+      { label: 'Avg min 2021–2025', data: dsAvgMin, borderColor: 'rgba(121,192,255,0.25)', borderWidth: 1.5,
         borderDash: [5,4], backgroundColor: 'transparent', pointRadius: 0, pointHoverRadius: 3, tension: 0.3, order: 4 }
     ]},
     options: {
