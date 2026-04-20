@@ -462,7 +462,8 @@ function renderChart() {
 
   const now = new Date();
   document.getElementById('btn-prev').disabled = (viewYear===2021 && viewMonth===0);
-  document.getElementById('btn-next').disabled = (viewYear===now.getFullYear() && viewMonth===now.getMonth());
+  const maxFwd = new Date(now.getFullYear(), now.getMonth() + 12, 1);
+  document.getElementById('btn-next').disabled = (viewYear > maxFwd.getFullYear() || (viewYear===maxFwd.getFullYear() && viewMonth>=maxFwd.getMonth()));
 
   document.getElementById('chart-spinner').style.display = 'none';
   document.getElementById('tempChart').style.display = 'block';
@@ -768,8 +769,10 @@ async function main() {
 async function navigateToMonth(year, month) {
   G.viewYear = year; G.viewMonth = month;
   const key = `${year}-${String(month+1).padStart(2,'0')}`;
-  // Fetch precipitation for this month if not cached (historical months)
-  if (!G.precipCache.has(key) && !key.startsWith(`${new Date().getFullYear()}`)) {
+  // Fetch precipitation for this month if not cached (historical months only, not future)
+  const _now = new Date();
+  const isFutureMonth = (year > _now.getFullYear()) || (year === _now.getFullYear() && month > _now.getMonth());
+  if (!G.precipCache.has(key) && !isFutureMonth && !key.startsWith(`${_now.getFullYear()}`)) {
     try {
       const start = `${key}-01`;
       const end = new Date(year, month+1, 0).toISOString().slice(0,10);
@@ -791,8 +794,6 @@ document.getElementById('btn-prev').addEventListener('click', () => {
   navigateToMonth(y, m);
 });
 document.getElementById('btn-next').addEventListener('click', () => {
-  const n=new Date();
-  if (G.viewYear===n.getFullYear()&&G.viewMonth===n.getMonth()) return;
   const y = G.viewMonth===11 ? G.viewYear+1 : G.viewYear;
   const m = G.viewMonth===11 ? 0 : G.viewMonth+1;
   navigateToMonth(y, m);
