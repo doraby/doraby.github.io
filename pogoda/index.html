@@ -390,7 +390,7 @@ const TZ = () => 'Europe%2FWarsaw';
 
 const urlForecast = () =>
   `https://api.open-meteo.com/v1/forecast?latitude=${G.lat}&longitude=${G.lon}` +
-  `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode&timezone=${TZ()}&forecast_days=14`;
+  `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode&timezone=${TZ()}&forecast_days=14&past_days=2`;
 
 const urlArchive = (s,e,vars) =>
   `https://archive-api.open-meteo.com/v1/archive?latitude=${G.lat}&longitude=${G.lon}` +
