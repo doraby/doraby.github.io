@@ -42,14 +42,18 @@
     .section-title { font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 18px; }
 
     /* ── Month nav ── */
-    .month-nav { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .month-nav {
+      display: grid; grid-template-columns: auto 1fr auto;
+      align-items: center; gap: 12px; margin-bottom: 16px;
+    }
+    .month-nav-center { display: flex; align-items: center; justify-content: center; gap: 8px; }
     .month-nav button {
       background: var(--bg); border: 1px solid var(--border); color: var(--text);
       padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 0.85rem; transition: border-color 0.15s;
     }
     .month-nav button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
     .month-nav button:disabled { opacity: 0.3; cursor: default; }
-    .month-nav .month-label { font-size: 1rem; font-weight: 600; min-width: 140px; text-align: center; }
+    .month-nav .month-label { font-size: 1rem; font-weight: 600; }
 
     /* ── Chart ── */
     .chart-legend { display: flex; gap: 20px; margin-bottom: 14px; font-size: 0.8rem; }
@@ -209,7 +213,14 @@
       background: none; transition: border-color 0.15s, color 0.15s;
     }
     .year-link:hover { border-color: var(--accent); color: var(--accent); }
-    .year-link.active { border-color: var(--accent); color: var(--accent); background: #1a2c45; }
+    .year-link.is-active { border: none; color: var(--text); font-weight: 600; cursor: default; padding: 4px 4px; }
+    .year-link.is-active:hover { border: none; color: var(--text); }
+    #chart-year-part.as-btn {
+      font-size: 0.85rem; color: var(--muted); padding: 2px 8px;
+      border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
+      background: none; transition: border-color 0.15s, color 0.15s; font-weight: 400;
+    }
+    #chart-year-part.as-btn:hover { border-color: var(--accent); color: var(--accent); }
 
     .spinner { color: var(--muted); text-align: center; padding: 40px 20px; font-size: 0.9rem; }
     .error-msg { color: #f85149; background: #1a1f2e; border: 1px solid #3d1c1c; border-radius: 8px; padding: 16px; font-size: 0.88rem; }
@@ -237,8 +248,10 @@
   <div class="card">
     <div class="month-nav">
       <button id="btn-prev">← Back</button>
-      <div class="year-links-nav" id="stats-year-links"></div>
-      <span class="month-label" id="chart-month-label">…</span>
+      <div class="month-nav-center">
+        <div class="year-links-nav" id="stats-year-links"></div>
+        <span class="month-label"><span id="chart-month-name">…</span> <span id="chart-year-part">…</span></span>
+      </div>
       <button id="btn-next">Forward →</button>
     </div>
     <div class="month-stats" id="month-stats-card" style="display:none">
@@ -553,7 +566,8 @@ function renderChart() {
     moonData.push({ moon: moonEmoji(phase), rain: precip > 1, plant: isWaxing(phase) && precip > 1 && tmin !== undefined && tmin >= 0 });
   }
 
-  document.getElementById('chart-month-label').textContent = `${RU_MONTHS[viewMonth]} ${viewYear}`;
+  document.getElementById('chart-month-name').textContent = RU_MONTHS[viewMonth];
+  updateYearLinkActive();
 
   const now = new Date();
   document.getElementById('btn-prev').disabled = (viewYear===2016 && viewMonth===0);
@@ -662,25 +676,38 @@ function renderChart() {
 
 
 /* ── Year link buttons ── */
+const CURRENT_YEAR = new Date().getFullYear();
+
 function initYearLinks() {
-  const now = new Date();
-  const currentYear = now.getFullYear();
   const yearLinksEl = document.getElementById('stats-year-links');
-  // Build: [currentYear, currentYear-1, currentYear-2, currentYear-3]
-  yearLinksEl.innerHTML = [currentYear, currentYear-1, currentYear-2, currentYear-3].map(y =>
+  // Past 3 years in ascending order
+  yearLinksEl.innerHTML = [CURRENT_YEAR-3, CURRENT_YEAR-2, CURRENT_YEAR-1].map(y =>
     `<button class="year-link" data-year="${y}">${y}</button>`
   ).join('');
   yearLinksEl.querySelectorAll('.year-link').forEach(btn => {
     btn.addEventListener('click', () => {
-      navigateToMonth(+btn.dataset.year, G.viewMonth);
+      if (!btn.classList.contains('is-active')) navigateToMonth(+btn.dataset.year, G.viewMonth);
     });
   });
 }
 
 function updateYearLinkActive() {
+  // Past year buttons: active one = plain text, others = buttons
   document.querySelectorAll('#stats-year-links .year-link').forEach(btn => {
-    btn.classList.toggle('active', +btn.dataset.year === G.viewYear);
+    btn.classList.toggle('is-active', +btn.dataset.year === G.viewYear);
   });
+
+  // Year part in the label: plain text when on current year, button otherwise
+  const yearPart = document.getElementById('chart-year-part');
+  if (G.viewYear === CURRENT_YEAR) {
+    yearPart.textContent = CURRENT_YEAR;
+    yearPart.className = '';
+    yearPart.onclick = null;
+  } else {
+    yearPart.textContent = CURRENT_YEAR;
+    yearPart.className = 'as-btn';
+    yearPart.onclick = () => navigateToMonth(CURRENT_YEAR, G.viewMonth);
+  }
 }
 
 /* ── Month stats indicator ── */
