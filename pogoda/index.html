@@ -185,9 +185,10 @@
 
     /* ── Month stats ── */
     .month-stats {
-      display: flex; flex-wrap: wrap; gap: 20px; align-items: center;
-      padding: 14px 0 4px;
+      display: flex; flex-wrap: nowrap; gap: 24px; align-items: baseline;
+      padding: 12px 0 2px;
       border-top: 1px solid var(--border); margin-top: 12px;
+      overflow: hidden;
     }
     .stat-item {
       display: flex; align-items: baseline; gap: 6px;
@@ -471,6 +472,7 @@ function buildGlobalData(archiveYear, forecastData, hist5yr) {
       }
       const vMin = temperature_2m_min?.[i];
       if (vMin!==null && vMin!==undefined && !isNaN(vMin)) {
+        G.allMin.set(dt, vMin);
         const k = dt.slice(5);
         sumMin[k] = (sumMin[k]||0)+vMin; cntMin[k] = (cntMin[k]||0)+1;
       }
@@ -478,11 +480,13 @@ function buildGlobalData(archiveYear, forecastData, hist5yr) {
       const sd = sunshine_duration?.[i];
       const pr = precipitation_sum?.[i];
       if (sd!==null && sd!==undefined && !isNaN(sd)) {
+        G.allSunshine.set(dt, sd);
         seenYM.add(ym);
         if (sd > SUNNY_THRESHOLD_SEC) sunnyYM[ym] = (sunnyYM[ym]||0)+1;
         else sunnyYM[ym] = sunnyYM[ym]||0;
       }
       if (pr!==null && pr!==undefined && !isNaN(pr)) {
+        G.allPrecip.set(dt, pr);
         seenYM.add(ym);
         if (pr >= RAINY_THRESHOLD_MM) rainyYM[ym] = (rainyYM[ym]||0)+1;
         else rainyYM[ym] = rainyYM[ym]||0;
@@ -657,47 +661,55 @@ function renderChart() {
 }
 
 
+/* ── Year link buttons ── */
+function initYearLinks() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const yearLinksEl = document.getElementById('stats-year-links');
+  // Build: [currentYear, currentYear-1, currentYear-2, currentYear-3]
+  yearLinksEl.innerHTML = [currentYear, currentYear-1, currentYear-2, currentYear-3].map(y =>
+    `<button class="year-link" data-year="${y}">${y}</button>`
+  ).join('');
+  yearLinksEl.querySelectorAll('.year-link').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigateToMonth(+btn.dataset.year, G.viewMonth);
+    });
+  });
+}
+
+function updateYearLinkActive() {
+  document.querySelectorAll('#stats-year-links .year-link').forEach(btn => {
+    btn.classList.toggle('active', +btn.dataset.year === G.viewYear);
+  });
+}
+
 /* ── Month stats indicator ── */
 function renderMonthStats() {
+  const { viewYear, viewMonth } = G;
+  const mm = String(viewMonth+1).padStart(2,'0');
+  const totalDays = new Date(viewYear, viewMonth+1, 0).getDate();
   const now = new Date();
-  const year = now.getFullYear();
-  const monthIdx = now.getMonth();
-  const mm = String(monthIdx+1).padStart(2,'0');
-  const totalDays = new Date(year, monthIdx+1, 0).getDate();
-  const today = now.getDate();
+  const isCurrentMonth = viewYear === now.getFullYear() && viewMonth === now.getMonth();
+  const lastDay = isCurrentMonth ? now.getDate() : totalDays;
+
+  const avgSunny = G.avgSunnyByMonth[mm];
+  const avgRainy = G.avgRainyByMonth[mm];
+  if (avgSunny === undefined || avgRainy === undefined) return;
 
   let sunny = 0, rainy = 0, daysWithSun = 0, daysWithRain = 0;
-  for (let d=1; d<=today; d++) {
-    const dt = `${year}-${mm}-${String(d).padStart(2,'0')}`;
+  for (let d=1; d<=lastDay; d++) {
+    const dt = `${viewYear}-${mm}-${String(d).padStart(2,'0')}`;
     const sd = G.allSunshine.get(dt);
     const pr = G.allPrecip.get(dt);
     if (sd !== undefined) { daysWithSun++; if (sd > SUNNY_THRESHOLD_SEC) sunny++; }
     if (pr !== undefined) { daysWithRain++; if (pr >= RAINY_THRESHOLD_MM) rainy++; }
   }
 
-  const avgSunny = G.avgSunnyByMonth[mm];
-  const avgRainy = G.avgRainyByMonth[mm];
-  if (avgSunny === undefined || avgRainy === undefined) return;
-
-  const proRateSun  = daysWithSun  > 0 ? avgSunny * (daysWithSun  / totalDays) : avgSunny;
-  const proRateRain = daysWithRain > 0 ? avgRainy * (daysWithRain / totalDays) : avgRainy;
+  // Pro-rate avg only for partial current month; full avg for complete months.
+  const proRateSun  = isCurrentMonth && daysWithSun  > 0 ? avgSunny * (daysWithSun  / totalDays) : avgSunny;
+  const proRateRain = isCurrentMonth && daysWithRain > 0 ? avgRainy * (daysWithRain / totalDays) : avgRainy;
 
   document.getElementById('month-stats-card').style.display = 'block';
-
-  // Year links for the current calendar month
-  const yearLinksEl = document.getElementById('stats-year-links');
-  const currentYear = now.getFullYear();
-  yearLinksEl.innerHTML = [currentYear-1, currentYear-2, currentYear-3].map(y =>
-    `<button class="year-link" data-year="${y}">${y}</button>`
-  ).join('');
-  yearLinksEl.querySelectorAll('.year-link').forEach(btn => {
-    btn.addEventListener('click', () => {
-      navigateToMonth(+btn.dataset.year, monthIdx);
-      yearLinksEl.querySelectorAll('.year-link').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-    });
-  });
-
   document.getElementById('sunny-current').textContent = sunny;
   document.getElementById('sunny-avg').textContent = Math.round(avgSunny);
   setDelta('sunny-delta', sunny, proRateSun);
@@ -706,10 +718,10 @@ function renderMonthStats() {
   document.getElementById('rainy-avg').textContent = Math.round(avgRainy);
   setDelta('rainy-delta', rainy, proRateRain);
 
-  // Trailing 14-day mean temperature.
+  // Mean temp for the viewed month.
   let sumCur = 0, cntCur = 0, sumAvg = 0, cntAvg = 0;
-  for (let i = 13; i >= 0; i--) {
-    const dt = dateOffset(-i);
+  for (let d=1; d<=lastDay; d++) {
+    const dt = `${viewYear}-${mm}-${String(d).padStart(2,'0')}`;
     const mmdd = dt.slice(5);
     const max = G.allActual.get(dt), min = G.allMin.get(dt);
     if (max !== undefined && min !== undefined) { sumCur += (max + min) / 2; cntCur++; }
@@ -729,6 +741,8 @@ function renderMonthStats() {
   } else {
     tempBox.style.display = 'none';
   }
+
+  updateYearLinkActive();
 }
 
 function fmtTempDec(v) {
@@ -769,6 +783,7 @@ async function loadData() {
   G.viewYear  = new Date().getFullYear();
   G.viewMonth = new Date().getMonth();
 
+  initYearLinks();
   renderChart();
   renderMonthStats();
   renderPlantingCards();
@@ -971,6 +986,7 @@ async function navigateToMonth(year, month) {
     } catch(e) { G.precipCache.set(key, new Map()); }
   }
   renderChart();
+  renderMonthStats();
 }
 
 document.getElementById('btn-prev').addEventListener('click', () => {
