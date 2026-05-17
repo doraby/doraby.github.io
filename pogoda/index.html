@@ -183,6 +183,37 @@
     #article-body p:last-child { margin-bottom: 0; }
     .article-loading { color: var(--muted); text-align: center; padding: 40px; }
 
+    /* ── Month stats ── */
+    .month-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+    .stat-box { display: flex; flex-direction: column; gap: 8px; }
+    .stat-header {
+      display: flex; align-items: baseline; justify-content: space-between;
+      font-size: 0.85rem; color: var(--text);
+    }
+    .stat-header .stat-title { font-weight: 600; }
+    .stat-header .stat-delta { font-size: 0.75rem; font-weight: 600; }
+    .stat-delta.above { color: #d29922; }
+    .stat-delta.below { color: #58a6ff; }
+    .stat-delta.equal { color: var(--muted); }
+    .stat-row { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; }
+    .stat-row-label { width: 56px; color: var(--muted); flex-shrink: 0; }
+    .stat-row-bar {
+      flex: 1; height: 8px; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 4px; overflow: hidden; position: relative;
+    }
+    .stat-row-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+    .stat-row-value { width: 70px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+    .stat-row-value strong { font-weight: 700; }
+    .fill-sunny { background: #f1c40f; }
+    .fill-sunny-avg { background: rgba(241,196,15,0.35); }
+    .fill-rainy { background: #58a6ff; }
+    .fill-rainy-avg { background: rgba(88,166,255,0.35); }
+    .stat-footnote { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+
+    @media (max-width: 600px) {
+      .month-stats { grid-template-columns: 1fr; gap: 18px; }
+    }
+
     .spinner { color: var(--muted); text-align: center; padding: 40px 20px; font-size: 0.9rem; }
     .error-msg { color: #f85149; background: #1a1f2e; border: 1px solid #3d1c1c; border-radius: 8px; padding: 16px; font-size: 0.88rem; }
     .attribution { text-align: center; color: var(--muted); font-size: 0.72rem; padding: 12px 0 4px; }
@@ -204,6 +235,47 @@
     </div>
     <button id="btn-station">📍 Change location</button>
   </header>
+
+  <!-- Month stats -->
+  <div class="card" id="month-stats-card" style="display:none">
+    <div class="section-title">This month — <span id="stats-month-label">…</span></div>
+    <div class="month-stats">
+      <div class="stat-box">
+        <div class="stat-header">
+          <span class="stat-title">☀️ Sunny days</span>
+          <span class="stat-delta" id="sunny-delta">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-row-label">So far</span>
+          <span class="stat-row-bar"><span class="stat-row-fill fill-sunny" id="sunny-fill" style="width:0%"></span></span>
+          <span class="stat-row-value" id="sunny-current">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-row-label">Average</span>
+          <span class="stat-row-bar"><span class="stat-row-fill fill-sunny-avg" id="sunny-avg-fill" style="width:0%"></span></span>
+          <span class="stat-row-value" id="sunny-avg">—</span>
+        </div>
+        <div class="stat-footnote" id="sunny-footnote"></div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-header">
+          <span class="stat-title">💧 Rainy days</span>
+          <span class="stat-delta" id="rainy-delta">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-row-label">So far</span>
+          <span class="stat-row-bar"><span class="stat-row-fill fill-rainy" id="rainy-fill" style="width:0%"></span></span>
+          <span class="stat-row-value" id="rainy-current">—</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-row-label">Average</span>
+          <span class="stat-row-bar"><span class="stat-row-fill fill-rainy-avg" id="rainy-avg-fill" style="width:0%"></span></span>
+          <span class="stat-row-value" id="rainy-avg">—</span>
+        </div>
+        <div class="stat-footnote" id="rainy-footnote"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- Chart -->
   <div class="card">
@@ -302,6 +374,11 @@ const RU_MONTHS     = ['January','February','March','April','May','June','July',
 const RU_MONTHS_GEN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const RU_MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+// A day counts as "sunny" if it had more than 6 hours of sunshine.
+const SUNNY_THRESHOLD_SEC = 6 * 3600;
+// A day counts as "rainy" if precipitation reached 1 mm or more.
+const RAINY_THRESHOLD_MM = 1;
+
 /* ── Moon phase ── */
 function getMoonPhaseDays(dateStr) {
   const refNewMoon = new Date('2000-01-06T18:14:00Z');
@@ -353,9 +430,12 @@ const G = {
   allActual: new Map(),
   allMin: new Map(),      // date → temperature_2m_min (2026 + forecast)
   allPrecip: new Map(),   // date → precipitation_sum (2026)
+  allSunshine: new Map(), // date → sunshine_duration in seconds (2026)
   precipCache: new Map(), // "YYYY-MM" → Map(date → precip)  for historical months
   avgByDay: {},
   avgByDayMin: {},
+  avgSunnyByMonth: {},    // "MM" → avg sunny days in that month (over hist range)
+  avgRainyByMonth: {},    // "MM" → avg rainy days in that month
   chartInst: null,
   viewYear: new Date().getFullYear(),
   viewMonth: new Date().getMonth(),
@@ -398,13 +478,17 @@ const urlArchive = (s,e,vars) =>
 
 /* ── Build global stores ── */
 function buildGlobalData(archiveYear, forecastData, hist5yr) {
-  G.allActual.clear(); G.allMin.clear(); G.allPrecip.clear(); G.precipCache.clear();
+  G.allActual.clear(); G.allMin.clear(); G.allPrecip.clear(); G.allSunshine.clear(); G.precipCache.clear();
   Object.keys(G.avgByDay).forEach(k => delete G.avgByDay[k]);
   Object.keys(G.avgByDayMin).forEach(k => delete G.avgByDayMin[k]);
+  Object.keys(G.avgSunnyByMonth).forEach(k => delete G.avgSunnyByMonth[k]);
+  Object.keys(G.avgRainyByMonth).forEach(k => delete G.avgRainyByMonth[k]);
 
   if (hist5yr?.daily) {
-    const {time, temperature_2m_max, temperature_2m_min} = hist5yr.daily;
+    const {time, temperature_2m_max, temperature_2m_min, precipitation_sum, sunshine_duration} = hist5yr.daily;
     const sumMax={}, cntMax={}, sumMin={}, cntMin={};
+    // Tally sunny/rainy days per (year-month); average across years per month later.
+    const sunnyYM = {}, rainyYM = {}, seenYM = new Set();
     time.forEach((dt,i) => {
       const vMax = temperature_2m_max[i];
       if (vMax!==null && !isNaN(vMax)) {
@@ -417,17 +501,41 @@ function buildGlobalData(archiveYear, forecastData, hist5yr) {
         const k = dt.slice(5);
         sumMin[k] = (sumMin[k]||0)+vMin; cntMin[k] = (cntMin[k]||0)+1;
       }
+      const ym = dt.slice(0,7);
+      const sd = sunshine_duration?.[i];
+      const pr = precipitation_sum?.[i];
+      if (sd!==null && sd!==undefined && !isNaN(sd)) {
+        seenYM.add(ym);
+        if (sd > SUNNY_THRESHOLD_SEC) sunnyYM[ym] = (sunnyYM[ym]||0)+1;
+        else sunnyYM[ym] = sunnyYM[ym]||0;
+      }
+      if (pr!==null && pr!==undefined && !isNaN(pr)) {
+        seenYM.add(ym);
+        if (pr >= RAINY_THRESHOLD_MM) rainyYM[ym] = (rainyYM[ym]||0)+1;
+        else rainyYM[ym] = rainyYM[ym]||0;
+      }
     });
     Object.keys(sumMax).forEach(k => { G.avgByDay[k] = +(sumMax[k]/cntMax[k]).toFixed(1); });
     Object.keys(sumMin).forEach(k => { G.avgByDayMin[k] = +(sumMin[k]/cntMin[k]).toFixed(1); });
+
+    // Average sunny/rainy day counts per calendar month across years.
+    const sumSunMM={}, cntSunMM={}, sumRainMM={}, cntRainMM={};
+    seenYM.forEach(ym => {
+      const mm = ym.slice(5);
+      if (ym in sunnyYM) { sumSunMM[mm]=(sumSunMM[mm]||0)+sunnyYM[ym]; cntSunMM[mm]=(cntSunMM[mm]||0)+1; }
+      if (ym in rainyYM) { sumRainMM[mm]=(sumRainMM[mm]||0)+rainyYM[ym]; cntRainMM[mm]=(cntRainMM[mm]||0)+1; }
+    });
+    Object.keys(sumSunMM).forEach(mm => { G.avgSunnyByMonth[mm] = sumSunMM[mm]/cntSunMM[mm]; });
+    Object.keys(sumRainMM).forEach(mm => { G.avgRainyByMonth[mm] = sumRainMM[mm]/cntRainMM[mm]; });
   }
 
   if (archiveYear?.daily) {
-    const {time, temperature_2m_max, temperature_2m_min, precipitation_sum} = archiveYear.daily;
+    const {time, temperature_2m_max, temperature_2m_min, precipitation_sum, sunshine_duration} = archiveYear.daily;
     time.forEach((dt,i) => {
       const v=temperature_2m_max[i]; if(v!==null&&!isNaN(v)) G.allActual.set(dt,v);
       const mn=temperature_2m_min?.[i]; if(mn!==null&&mn!==undefined) G.allMin.set(dt,mn);
       const p=precipitation_sum?.[i]; if(p!==null&&p!==undefined) G.allPrecip.set(dt,p);
+      const sd=sunshine_duration?.[i]; if(sd!==null&&sd!==undefined) G.allSunshine.set(dt,sd);
     });
   }
 
@@ -576,6 +684,71 @@ function renderChart() {
 }
 
 
+/* ── Month stats indicator ── */
+function renderMonthStats() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const monthIdx = now.getMonth();
+  const mm = String(monthIdx+1).padStart(2,'0');
+  const totalDays = new Date(year, monthIdx+1, 0).getDate();
+  const today = now.getDate();
+
+  // Count this month's sunny / rainy days from current-year archive.
+  let sunny = 0, rainy = 0, daysWithSun = 0, daysWithRain = 0;
+  for (let d=1; d<=today; d++) {
+    const dt = `${year}-${mm}-${String(d).padStart(2,'0')}`;
+    const sd = G.allSunshine.get(dt);
+    const pr = G.allPrecip.get(dt);
+    if (sd !== undefined) { daysWithSun++; if (sd > SUNNY_THRESHOLD_SEC) sunny++; }
+    if (pr !== undefined) { daysWithRain++; if (pr >= RAINY_THRESHOLD_MM) rainy++; }
+  }
+
+  const avgSunny = G.avgSunnyByMonth[mm];
+  const avgRainy = G.avgRainyByMonth[mm];
+  if (avgSunny === undefined || avgRainy === undefined) return; // no history → skip
+
+  // Pro-rate average to days observed so far for a fair comparison.
+  const proRateSun  = daysWithSun  > 0 ? avgSunny * (daysWithSun  / totalDays) : avgSunny;
+  const proRateRain = daysWithRain > 0 ? avgRainy * (daysWithRain / totalDays) : avgRainy;
+
+  const card = document.getElementById('month-stats-card');
+  card.style.display = 'block';
+  document.getElementById('stats-month-label').textContent = `${RU_MONTHS[monthIdx]} ${year}`;
+
+  // Sunny
+  document.getElementById('sunny-current').innerHTML = `<strong>${sunny}</strong> / ${totalDays}`;
+  document.getElementById('sunny-avg').innerHTML = `${avgSunny.toFixed(1)} / ${totalDays}`;
+  document.getElementById('sunny-fill').style.width = `${(sunny/totalDays)*100}%`;
+  document.getElementById('sunny-avg-fill').style.width = `${(avgSunny/totalDays)*100}%`;
+  setDelta('sunny-delta', sunny, proRateSun);
+  document.getElementById('sunny-footnote').textContent =
+    `Avg over 2016–2025 · day with >6 h of sun`;
+
+  // Rainy
+  document.getElementById('rainy-current').innerHTML = `<strong>${rainy}</strong> / ${totalDays}`;
+  document.getElementById('rainy-avg').innerHTML = `${avgRainy.toFixed(1)} / ${totalDays}`;
+  document.getElementById('rainy-fill').style.width = `${(rainy/totalDays)*100}%`;
+  document.getElementById('rainy-avg-fill').style.width = `${(avgRainy/totalDays)*100}%`;
+  setDelta('rainy-delta', rainy, proRateRain);
+  document.getElementById('rainy-footnote').textContent =
+    `Avg over 2016–2025 · day with ≥1 mm of rain`;
+}
+
+function setDelta(elId, current, expected) {
+  const el = document.getElementById(elId);
+  const diff = current - expected;
+  if (Math.abs(diff) < 0.5) {
+    el.textContent = 'on pace';
+    el.className = 'stat-delta equal';
+  } else if (diff > 0) {
+    el.textContent = `+${diff.toFixed(1)} vs avg pace`;
+    el.className = 'stat-delta above';
+  } else {
+    el.textContent = `${diff.toFixed(1)} vs avg pace`;
+    el.className = 'stat-delta below';
+  }
+}
+
 /* ── Main load ── */
 async function loadData() {
   document.getElementById('chart-spinner').style.display='block';
@@ -584,8 +757,8 @@ async function loadData() {
   const year = new Date().getFullYear();
   const [forecastData, archiveYearData, hist5yr] = await Promise.all([
     fetchJSON(urlForecast()),
-    fetchJSON(urlArchive(`${year}-01-01`, dateOffset(-2), 'temperature_2m_max,temperature_2m_min,precipitation_sum')),
-    fetchJSON(urlArchive('2016-01-01','2025-12-31','temperature_2m_max,temperature_2m_min')),
+    fetchJSON(urlArchive(`${year}-01-01`, dateOffset(-2), 'temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration')),
+    fetchJSON(urlArchive('2016-01-01','2025-12-31','temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration')),
   ]);
 
   document.getElementById('updated-at').textContent =
@@ -598,6 +771,7 @@ async function loadData() {
   G.viewMonth = new Date().getMonth();
 
   renderChart();
+  renderMonthStats();
   renderPlantingCards();
 }
 
