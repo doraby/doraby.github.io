@@ -709,7 +709,7 @@ function renderMonthStats() {
   const proRateSun  = isCurrentMonth && daysWithSun  > 0 ? avgSunny * (daysWithSun  / totalDays) : avgSunny;
   const proRateRain = isCurrentMonth && daysWithRain > 0 ? avgRainy * (daysWithRain / totalDays) : avgRainy;
 
-  document.getElementById('month-stats-card').style.display = 'block';
+  document.getElementById('month-stats-card').style.display = 'flex';
   document.getElementById('sunny-current').textContent = sunny;
   document.getElementById('sunny-avg').textContent = Math.round(avgSunny);
   setDelta('sunny-delta', sunny, proRateSun);
