@@ -184,48 +184,29 @@
     .article-loading { color: var(--muted); text-align: center; padding: 40px; }
 
     /* ── Month stats ── */
-    .month-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 22px; }
-    .stat-box { display: flex; flex-direction: column; gap: 8px; }
-    .stat-header {
-      display: flex; align-items: baseline; justify-content: space-between;
-      font-size: 0.85rem; color: var(--text);
+    .month-stats {
+      display: flex; flex-wrap: wrap; gap: 20px; align-items: center;
     }
-    .stat-header .stat-title { font-weight: 600; }
-    .stat-header .stat-delta { font-size: 0.75rem; font-weight: 600; }
+    .stat-item {
+      display: flex; align-items: baseline; gap: 6px;
+      font-size: 0.88rem; color: var(--muted);
+    }
+    .stat-item .stat-icon { font-size: 0.95rem; }
+    .stat-item .stat-nums { color: var(--text); }
+    .stat-item .stat-nums strong { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .stat-item .stat-nums .num-avg { color: var(--muted); }
+    .stat-delta { font-size: 0.75rem; font-weight: 600; }
     .stat-delta.above { color: #d29922; }
     .stat-delta.below { color: #58a6ff; }
     .stat-delta.equal { color: var(--muted); }
-    .stat-row { display: flex; align-items: center; gap: 10px; font-size: 0.8rem; }
-    .stat-row-label { width: 56px; color: var(--muted); flex-shrink: 0; }
-    .stat-row-bar {
-      flex: 1; height: 8px; background: var(--bg);
-      border: 1px solid var(--border); border-radius: 4px; overflow: hidden; position: relative;
+    .stat-years { margin-left: auto; display: flex; gap: 6px; }
+    .year-link {
+      font-size: 0.75rem; color: var(--muted); padding: 2px 8px;
+      border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+      background: none; transition: border-color 0.15s, color 0.15s;
     }
-    .stat-row-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
-    .stat-row-value { width: 70px; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
-    .stat-row-value strong { font-weight: 700; }
-    .fill-sunny { background: #f1c40f; }
-    .fill-sunny-avg { background: rgba(241,196,15,0.35); }
-    .fill-rainy { background: #58a6ff; }
-    .fill-rainy-avg { background: rgba(88,166,255,0.35); }
-    .stat-footnote { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
-
-    /* Temp pair */
-    .temp-pair { display: flex; gap: 10px; }
-    .temp-cell {
-      flex: 1; background: var(--bg); border: 1px solid var(--border);
-      border-radius: 8px; padding: 10px 12px; text-align: center;
-    }
-    .temp-cell-label {
-      font-size: 0.68rem; color: var(--muted);
-      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 4px;
-    }
-    .temp-cell-value { font-size: 1.35rem; font-weight: 700; color: var(--warm); font-variant-numeric: tabular-nums; }
-    .temp-cell.avg .temp-cell-value { color: var(--muted); }
-
-    @media (max-width: 600px) {
-      .month-stats { grid-template-columns: 1fr; gap: 18px; }
-    }
+    .year-link:hover { border-color: var(--accent); color: var(--accent); }
+    .year-link.active { border-color: var(--accent); color: var(--accent); background: #1a2c45; }
 
     .spinner { color: var(--muted); text-align: center; padding: 40px 20px; font-size: 0.9rem; }
     .error-msg { color: #f85149; background: #1a1f2e; border: 1px solid #3d1c1c; border-radius: 8px; padding: 16px; font-size: 0.88rem; }
@@ -251,59 +232,23 @@
 
   <!-- Month stats -->
   <div class="card" id="month-stats-card" style="display:none">
-    <div class="section-title">This month — <span id="stats-month-label">…</span></div>
     <div class="month-stats">
-      <div class="stat-box">
-        <div class="stat-header">
-          <span class="stat-title">☀️ Sunny days</span>
-          <span class="stat-delta" id="sunny-delta">—</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-row-label">So far</span>
-          <span class="stat-row-bar"><span class="stat-row-fill fill-sunny" id="sunny-fill" style="width:0%"></span></span>
-          <span class="stat-row-value" id="sunny-current">—</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-row-label">Average</span>
-          <span class="stat-row-bar"><span class="stat-row-fill fill-sunny-avg" id="sunny-avg-fill" style="width:0%"></span></span>
-          <span class="stat-row-value" id="sunny-avg">—</span>
-        </div>
-        <div class="stat-footnote" id="sunny-footnote"></div>
+      <div class="stat-item">
+        <span class="stat-icon">☀️</span>
+        <span class="stat-nums">Sunny days <strong id="sunny-current">—</strong> / avg <span class="num-avg" id="sunny-avg">—</span></span>
+        <span class="stat-delta" id="sunny-delta"></span>
       </div>
-      <div class="stat-box">
-        <div class="stat-header">
-          <span class="stat-title">💧 Rainy days</span>
-          <span class="stat-delta" id="rainy-delta">—</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-row-label">So far</span>
-          <span class="stat-row-bar"><span class="stat-row-fill fill-rainy" id="rainy-fill" style="width:0%"></span></span>
-          <span class="stat-row-value" id="rainy-current">—</span>
-        </div>
-        <div class="stat-row">
-          <span class="stat-row-label">Average</span>
-          <span class="stat-row-bar"><span class="stat-row-fill fill-rainy-avg" id="rainy-avg-fill" style="width:0%"></span></span>
-          <span class="stat-row-value" id="rainy-avg">—</span>
-        </div>
-        <div class="stat-footnote" id="rainy-footnote"></div>
+      <div class="stat-item">
+        <span class="stat-icon">💧</span>
+        <span class="stat-nums">Rainy days <strong id="rainy-current">—</strong> / avg <span class="num-avg" id="rainy-avg">—</span></span>
+        <span class="stat-delta" id="rainy-delta"></span>
       </div>
-      <div class="stat-box" id="temp-stat-box">
-        <div class="stat-header">
-          <span class="stat-title">🌡 Avg temp · last 14 days</span>
-          <span class="stat-delta" id="temp-delta">—</span>
-        </div>
-        <div class="temp-pair">
-          <div class="temp-cell">
-            <div class="temp-cell-label">Now</div>
-            <div class="temp-cell-value" id="temp-current">—</div>
-          </div>
-          <div class="temp-cell avg">
-            <div class="temp-cell-label">Average</div>
-            <div class="temp-cell-value" id="temp-avg">—</div>
-          </div>
-        </div>
-        <div class="stat-footnote" id="temp-footnote"></div>
+      <div class="stat-item" id="temp-stat-box">
+        <span class="stat-icon">🌡</span>
+        <span class="stat-nums">Avg temp <strong id="temp-current">—</strong> / avg <span class="num-avg" id="temp-avg">—</span></span>
+        <span class="stat-delta" id="temp-delta"></span>
       </div>
+      <div class="stat-item stat-years" id="stats-year-links"></div>
     </div>
   </div>
 
@@ -723,7 +668,6 @@ function renderMonthStats() {
   const totalDays = new Date(year, monthIdx+1, 0).getDate();
   const today = now.getDate();
 
-  // Count this month's sunny / rainy days from current-year archive.
   let sunny = 0, rainy = 0, daysWithSun = 0, daysWithRain = 0;
   for (let d=1; d<=today; d++) {
     const dt = `${year}-${mm}-${String(d).padStart(2,'0')}`;
@@ -735,62 +679,57 @@ function renderMonthStats() {
 
   const avgSunny = G.avgSunnyByMonth[mm];
   const avgRainy = G.avgRainyByMonth[mm];
-  if (avgSunny === undefined || avgRainy === undefined) return; // no history → skip
+  if (avgSunny === undefined || avgRainy === undefined) return;
 
-  // Pro-rate average to days observed so far for a fair comparison.
   const proRateSun  = daysWithSun  > 0 ? avgSunny * (daysWithSun  / totalDays) : avgSunny;
   const proRateRain = daysWithRain > 0 ? avgRainy * (daysWithRain / totalDays) : avgRainy;
 
-  const card = document.getElementById('month-stats-card');
-  card.style.display = 'block';
-  document.getElementById('stats-month-label').textContent = `${RU_MONTHS[monthIdx]} ${year}`;
+  document.getElementById('month-stats-card').style.display = 'block';
 
-  // Sunny
-  document.getElementById('sunny-current').innerHTML = `<strong>${sunny}</strong> / ${totalDays}`;
-  document.getElementById('sunny-avg').innerHTML = `${avgSunny.toFixed(1)} / ${totalDays}`;
-  document.getElementById('sunny-fill').style.width = `${(sunny/totalDays)*100}%`;
-  document.getElementById('sunny-avg-fill').style.width = `${(avgSunny/totalDays)*100}%`;
+  // Year links for the current calendar month
+  const yearLinksEl = document.getElementById('stats-year-links');
+  const currentYear = now.getFullYear();
+  yearLinksEl.innerHTML = [currentYear-1, currentYear-2, currentYear-3].map(y =>
+    `<button class="year-link" data-year="${y}">${y}</button>`
+  ).join('');
+  yearLinksEl.querySelectorAll('.year-link').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigateToMonth(+btn.dataset.year, monthIdx);
+      yearLinksEl.querySelectorAll('.year-link').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+
+  document.getElementById('sunny-current').textContent = sunny;
+  document.getElementById('sunny-avg').textContent = Math.round(avgSunny);
   setDelta('sunny-delta', sunny, proRateSun);
-  document.getElementById('sunny-footnote').textContent =
-    `Avg over 2016–2025 · day with >6 h of sun`;
 
-  // Rainy
-  document.getElementById('rainy-current').innerHTML = `<strong>${rainy}</strong> / ${totalDays}`;
-  document.getElementById('rainy-avg').innerHTML = `${avgRainy.toFixed(1)} / ${totalDays}`;
-  document.getElementById('rainy-fill').style.width = `${(rainy/totalDays)*100}%`;
-  document.getElementById('rainy-avg-fill').style.width = `${(avgRainy/totalDays)*100}%`;
+  document.getElementById('rainy-current').textContent = rainy;
+  document.getElementById('rainy-avg').textContent = Math.round(avgRainy);
   setDelta('rainy-delta', rainy, proRateRain);
-  document.getElementById('rainy-footnote').textContent =
-    `Avg over 2016–2025 · day with ≥1 mm of rain`;
 
-  // Trailing 14-day average temperature vs same calendar dates' historical mean.
+  // Trailing 14-day mean temperature.
   let sumCur = 0, cntCur = 0, sumAvg = 0, cntAvg = 0;
   for (let i = 13; i >= 0; i--) {
     const dt = dateOffset(-i);
     const mmdd = dt.slice(5);
-    const max = G.allActual.get(dt);
-    const min = G.allMin.get(dt);
+    const max = G.allActual.get(dt), min = G.allMin.get(dt);
     if (max !== undefined && min !== undefined) { sumCur += (max + min) / 2; cntCur++; }
-    const aMax = G.avgByDay[mmdd];
-    const aMin = G.avgByDayMin[mmdd];
+    const aMax = G.avgByDay[mmdd], aMin = G.avgByDayMin[mmdd];
     if (aMax !== undefined && aMin !== undefined) { sumAvg += (aMax + aMin) / 2; cntAvg++; }
   }
-  const tempEl = document.getElementById('temp-stat-box');
+  const tempBox = document.getElementById('temp-stat-box');
   if (cntCur > 0 && cntAvg > 0) {
-    const curMean = sumCur / cntCur;
-    const avgMean = sumAvg / cntAvg;
+    const curMean = sumCur / cntCur, avgMean = sumAvg / cntAvg;
     document.getElementById('temp-current').textContent = fmtTempDec(curMean);
     document.getElementById('temp-avg').textContent = fmtTempDec(avgMean);
-    const diff = curMean - avgMean;
-    const dEl = document.getElementById('temp-delta');
-    if (Math.abs(diff) < 0.2) { dEl.textContent = 'on par'; dEl.className = 'stat-delta equal'; }
-    else if (diff > 0)        { dEl.textContent = `+${diff.toFixed(1)}° warmer`; dEl.className = 'stat-delta above'; }
-    else                       { dEl.textContent = `${diff.toFixed(1)}° cooler`; dEl.className = 'stat-delta below'; }
-    document.getElementById('temp-footnote').textContent =
-      `Daily mean (max+min)/2 · vs same dates 2016–2025`;
-    tempEl.style.display = '';
+    const diff = curMean - avgMean, dEl = document.getElementById('temp-delta');
+    if (Math.abs(diff) < 0.2)  { dEl.textContent = 'on par';                    dEl.className = 'stat-delta equal'; }
+    else if (diff > 0)          { dEl.textContent = `+${diff.toFixed(1)}° warmer`; dEl.className = 'stat-delta above'; }
+    else                        { dEl.textContent = `${diff.toFixed(1)}° cooler`;  dEl.className = 'stat-delta below'; }
+    tempBox.style.display = '';
   } else {
-    tempEl.style.display = 'none';
+    tempBox.style.display = 'none';
   }
 }
 
