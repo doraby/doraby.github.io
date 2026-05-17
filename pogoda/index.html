@@ -186,12 +186,14 @@
     /* ── Month stats ── */
     .month-stats {
       display: flex; flex-wrap: wrap; gap: 20px; align-items: center;
+      padding: 14px 0 4px;
+      border-top: 1px solid var(--border); margin-top: 12px;
     }
     .stat-item {
       display: flex; align-items: baseline; gap: 6px;
-      font-size: 0.88rem; color: var(--muted);
+      font-size: 0.85rem; color: var(--muted);
     }
-    .stat-item .stat-icon { font-size: 0.95rem; }
+    .stat-item .stat-icon { font-size: 0.9rem; }
     .stat-item .stat-nums { color: var(--text); }
     .stat-item .stat-nums strong { font-weight: 700; font-variant-numeric: tabular-nums; }
     .stat-item .stat-nums .num-avg { color: var(--muted); }
@@ -199,10 +201,10 @@
     .stat-delta.above { color: #d29922; }
     .stat-delta.below { color: #58a6ff; }
     .stat-delta.equal { color: var(--muted); }
-    .stat-years { margin-left: auto; display: flex; gap: 6px; }
+    .year-links-nav { display: flex; gap: 5px; }
     .year-link {
-      font-size: 0.75rem; color: var(--muted); padding: 2px 8px;
-      border: 1px solid var(--border); border-radius: 5px; cursor: pointer;
+      font-size: 0.8rem; color: var(--muted); padding: 4px 10px;
+      border: 1px solid var(--border); border-radius: 6px; cursor: pointer;
       background: none; transition: border-color 0.15s, color 0.15s;
     }
     .year-link:hover { border-color: var(--accent); color: var(--accent); }
@@ -230,9 +232,15 @@
     <button id="btn-station">📍 Change location</button>
   </header>
 
-  <!-- Month stats -->
-  <div class="card" id="month-stats-card" style="display:none">
-    <div class="month-stats">
+  <!-- Chart -->
+  <div class="card">
+    <div class="month-nav">
+      <button id="btn-prev">← Back</button>
+      <div class="year-links-nav" id="stats-year-links"></div>
+      <span class="month-label" id="chart-month-label">…</span>
+      <button id="btn-next">Forward →</button>
+    </div>
+    <div class="month-stats" id="month-stats-card" style="display:none">
       <div class="stat-item">
         <span class="stat-icon">☀️</span>
         <span class="stat-nums">Sunny days <strong id="sunny-current">—</strong> / avg <span class="num-avg" id="sunny-avg">—</span></span>
@@ -248,16 +256,6 @@
         <span class="stat-nums">Avg temp <strong id="temp-current">—</strong> / avg <span class="num-avg" id="temp-avg">—</span></span>
         <span class="stat-delta" id="temp-delta"></span>
       </div>
-      <div class="stat-item stat-years" id="stats-year-links"></div>
-    </div>
-  </div>
-
-  <!-- Chart -->
-  <div class="card">
-    <div class="month-nav">
-      <button id="btn-prev">← Back</button>
-      <span class="month-label" id="chart-month-label">…</span>
-      <button id="btn-next">Forward →</button>
     </div>
     <div class="chart-wrap">
       <div class="spinner" id="chart-spinner">Loading data…</div>
@@ -724,9 +722,9 @@ function renderMonthStats() {
     document.getElementById('temp-current').textContent = fmtTempDec(curMean);
     document.getElementById('temp-avg').textContent = fmtTempDec(avgMean);
     const diff = curMean - avgMean, dEl = document.getElementById('temp-delta');
-    if (Math.abs(diff) < 0.2)  { dEl.textContent = 'on par';                    dEl.className = 'stat-delta equal'; }
-    else if (diff > 0)          { dEl.textContent = `+${diff.toFixed(1)}° warmer`; dEl.className = 'stat-delta above'; }
-    else                        { dEl.textContent = `${diff.toFixed(1)}° cooler`;  dEl.className = 'stat-delta below'; }
+    if (Math.abs(diff) < 0.2)  { dEl.textContent = '';                      dEl.className = 'stat-delta equal'; }
+    else if (diff > 0)          { dEl.textContent = `+${diff.toFixed(1)}°`; dEl.className = 'stat-delta above'; }
+    else                        { dEl.textContent = `${diff.toFixed(1)}°`;  dEl.className = 'stat-delta below'; }
     tempBox.style.display = '';
   } else {
     tempBox.style.display = 'none';
@@ -742,14 +740,11 @@ function setDelta(elId, current, expected) {
   const el = document.getElementById(elId);
   const diff = current - expected;
   if (Math.abs(diff) < 0.5) {
-    el.textContent = 'on pace';
-    el.className = 'stat-delta equal';
+    el.textContent = ''; el.className = 'stat-delta equal';
   } else if (diff > 0) {
-    el.textContent = `+${diff.toFixed(1)} vs avg pace`;
-    el.className = 'stat-delta above';
+    el.textContent = `+${diff.toFixed(1)}`; el.className = 'stat-delta above';
   } else {
-    el.textContent = `${diff.toFixed(1)} vs avg pace`;
-    el.className = 'stat-delta below';
+    el.textContent = diff.toFixed(1); el.className = 'stat-delta below';
   }
 }
 
