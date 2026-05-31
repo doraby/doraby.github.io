@@ -94,6 +94,24 @@
     font-weight:700;font-size:14px;background:var(--panel2);border:1px solid var(--line);flex:none}
   .rankbadge.g1{background:linear-gradient(180deg,#ffd66b,#e6a800);color:#3a2a00;border:none}
   .demo-note{font-size:11px;color:var(--muted);text-align:center;margin-top:8px;opacity:.7}
+  /* CRM table */
+  .tblwrap{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin-bottom:12px}
+  .tblscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table.crm{width:100%;border-collapse:collapse;font-size:13px;min-width:480px}
+  table.crm th{position:sticky;top:0;background:var(--panel2);color:var(--muted);font-weight:600;
+    text-align:left;padding:11px 12px;border-bottom:1px solid var(--line);white-space:nowrap;
+    cursor:pointer;user-select:none;font-size:12px}
+  table.crm th.sorted{color:var(--accent)}
+  table.crm th .ar{font-size:10px;opacity:.8}
+  table.crm td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.crm tr:last-child td{border-bottom:none}
+  table.crm tr.row1 td{background:rgba(91,140,255,.06)}
+  table.crm .nm{font-weight:600;color:var(--txt)}
+  table.crm .ad{color:var(--muted);font-size:11px;margin-top:2px;white-space:normal}
+  table.crm .pr{font-weight:700;white-space:nowrap}
+  table.crm a.tel{color:var(--accent);text-decoration:none;white-space:nowrap}
+  table.crm .dot-s{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px}
+  .dot-s.in{background:var(--good)} .dot-s.out{background:var(--bad)}
   a{color:var(--accent)}
 </style>
 </head>
@@ -309,41 +327,48 @@ function renderResearch(id){
 function renderCRM(id){
   const t = findTask(id);
   if(!t){ go('home'); return; }
-  setHeader('CRM поставщиков', t.title, 'task/'+id);
+  setHeader('CRM поставщиков', `${t.title} · ${t.suppliers.length} шт.`, 'task/'+id);
   const v = document.getElementById('view');
-  let sort = 'price';
+  let sort = 'price', dir = 1;            // dir: 1 asc, -1 desc
+  const cols = [
+    ['name','Поставщик'], ['price','Цена'], ['stock','Наличие'],
+    ['rating','Рейтинг'], ['phone','Телефон']
+  ];
+  const cmp = {
+    name:(a,b)=>a.name.localeCompare(b.name),
+    price:(a,b)=>a.price-b.price,
+    stock:(a,b)=>(b.inStock-a.inStock),
+    rating:(a,b)=>(b.rating-a.rating),
+    phone:(a,b)=>a.name.localeCompare(b.name),
+  };
   function draw(){
-    const list = [...t.suppliers].sort((a,b)=>
-      sort==='price'? a.price-b.price : sort==='rating'? b.rating-a.rating : (b.inStock-a.inStock));
+    const list = [...t.suppliers].sort((a,b)=>cmp[sort](a,b)*dir);
     v.innerHTML = `
-      <div class="seg">
-        ${['price','rating','stock'].map(s=>`<button class="${sort===s?'on':''}" data-s="${s}">${
-          {price:'По цене',rating:'По рейтингу',stock:'По наличию'}[s]}</button>`).join('')}
-      </div>
-      ${list.map(supplierCard).join('')}
+      <div class="tblwrap"><div class="tblscroll"><table class="crm">
+        <thead><tr>${cols.map(([k,l])=>
+          `<th data-k="${k}" class="${sort===k?'sorted':''}">${l}${
+            sort===k?` <span class="ar">${dir>0?'▲':'▼'}</span>`:''}</th>`).join('')}</tr></thead>
+        <tbody>${list.map((s,i)=>rowHTML(s,i)).join('')}</tbody>
+      </table></div></div>
+      <div class="demo-note">Нажми на заголовок столбца для сортировки</div>
       <button class="btn ghost" onclick="go('report/${id}')">📊 К отчёту</button>`;
-    v.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{sort=b.dataset.s;draw();});
+    v.querySelectorAll('th').forEach(th=>th.onclick=()=>{
+      const k=th.dataset.k;
+      if(sort===k){ dir=-dir; } else { sort=k; dir = (k==='name'||k==='phone')?1:(k==='price'?1:-1); }
+      draw();
+    });
   }
   draw();
 }
 function stars(r){return '★'.repeat(Math.round(r))+'☆'.repeat(5-Math.round(r));}
-function supplierCard(s){
-  return `<div class="card">
-    <div class="row sb">
-      <div style="font-weight:650">${s.name}</div>
-      <div class="price">${s.price} ${s.currency}</div>
-    </div>
-    <div class="row sb" style="margin-top:8px">
-      <span class="tag ${s.inStock?'good':'bad'}">${s.inStock?'В наличии':'Под заказ'}</span>
-      <span class="muted" style="font-size:13px">${stars(s.rating)} ${s.rating} · ${s.reviews}</span>
-    </div>
-    <div class="muted" style="font-size:13px;margin-top:10px">${s.notes}</div>
-    <div class="muted" style="font-size:12px;margin-top:8px">📍 ${s.addr}</div>
-    <div class="row" style="gap:10px;margin-top:12px">
-      <a class="btn sec" style="margin:0;flex:1;text-decoration:none" href="tel:${s.phone.replace(/\s/g,'')}">📞 ${s.phone}</a>
-      <a class="btn ghost" style="margin:0;flex:none;text-decoration:none" href="https://${s.website}" target="_blank">🔗</a>
-    </div>
-  </div>`;
+function rowHTML(s,i){
+  return `<tr class="${i===0?'row1':''}">
+    <td><div class="nm">${s.name}</div><div class="ad">📍 ${s.addr}</div></td>
+    <td class="pr">${s.price} ${s.currency}</td>
+    <td><span class="dot-s ${s.inStock?'in':'out'}"></span>${s.inStock?'есть':'под заказ'}</td>
+    <td>${s.rating} <span class="muted" style="font-size:11px">(${s.reviews})</span></td>
+    <td><a class="tel" href="tel:${s.phone.replace(/\s/g,'')}">${s.phone}</a></td>
+  </tr>`;
 }
 
 function renderReport(id){
