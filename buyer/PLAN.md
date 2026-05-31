@@ -1,0 +1,139 @@
+# Buyer Assistant — план
+
+AI-ассистент-байер: принимает задачу на покупку, глубоко ресёрчит цены/отзывы/
+поставщиков в заданном регионе, собирает CRM поставщиков и возвращает отчёт
+«у кого купить и почём». Вторым этапом — сам обзванивает поставщиков голосом
+(ElevenLabs Agents + Twilio) на нужном языке и уточняет детали.
+
+Web-first PWA на `https://doraby.github.io/buyer/`, позже оборачивается в
+iOS-приложение через Capacitor для App Store.
+
+---
+
+## Решения (согласовано)
+
+- **MVP** = ресёрч + CRM + отчёт. Звонки — фаза 2.
+- **Бэкенд** = только Supabase (Postgres + Auth + Edge Functions).
+- **Фронт** = лёгкий статичный PWA в этом репо (как `pogoda/`), без тяжёлой сборки.
+- **iOS** = Capacitor-обёртка вокруг того же веб-приложения (фаза 3).
+
+---
+
+## Архитектура
+
+```
+Frontend PWA  (doraby.github.io/buyer/)
+  Экраны: Задача · Настройки(регион/язык) · Ресёрч · CRM · Отчёт
+        │  Supabase JS SDK (auth + чтение/запись + realtime)
+        ▼
+Supabase
+  Postgres (RLS)   ── таблицы: profiles, tasks, suppliers, reports, (calls — фаза 2)
+  Auth             ── email magic-link
+  Edge Functions   ── секреты/ключи живут здесь, не в браузере:
+      • research      — задача → web-search/LLM → структурированные поставщики
+      • build-report  — агрегирует поставщиков → ранжированный отчёт
+      • (фаза 2) start-calls, call-webhook — ElevenLabs + Twilio
+```
+
+Почему Edge Functions: ключи LLM / поисковика / ElevenLabs / Twilio нельзя
+держать в клиенте. Функции — единственное место с секретами.
+
+---
+
+## Экраны (MVP)
+
+1. **Вход** — Supabase magic-link по email.
+2. **Настройки** — регион (страна/город), язык общения с ассистентом, язык
+   звонков (фаза 2), валюта. Хранятся в `profiles`.
+3. **Новая задача** — свободный текст: что купить, кол-во, параметры, бюджет,
+   срок. Ассистент уточняющими вопросами добивает детали (опционально).
+4. **Ресёрч** (прогресс) — статус: ищу → нашёл N поставщиков → собираю цены.
+5. **CRM поставщиков** — список карточек: название, телефон, адрес, цена,
+   наличие, рейтинг/отзывы, источник. Сорт/фильтр.
+6. **Отчёт** — ранжированная сводка «где выгоднее», обоснование, кнопки
+   «позвонить этим» (фаза 2) и «связаться» (tel:/ссылка на сайт).
+
+---
+
+## Модель данных (Supabase, Postgres + RLS)
+
+```sql
+profiles    (id=auth.uid, region_country, region_city, assistant_lang,
+             call_lang, currency, created_at)
+
+tasks       (id, user_id, title, raw_brief, parsed jsonb, status, created_at)
+            -- status: draft|researching|researched|reported|calling|done
+
+suppliers   (id, task_id, user_id, name, phone, address, website,
+             price numeric, currency, in_stock, rating, reviews_count,
+             source_url, notes, raw jsonb, created_at)
+
+reports     (id, task_id, user_id, summary, ranking jsonb, created_at)
+
+-- фаза 2
+calls       (id, supplier_id, task_id, user_id, provider_call_id, status,
+             transcript text, extracted jsonb, created_at)
+```
+
+RLS: каждая строка видна только владельцу (`user_id = auth.uid()`).
+
+---
+
+## Edge Functions (MVP)
+
+- **`research`**: вход `task_id`. Берёт бриф + регион → делает web-поиск
+  (Perplexity / Brave Search / SerpAPI — выбрать) и/или LLM с поиском →
+  извлекает поставщиков (имя, телефон, цена, наличие, отзывы, источник) →
+  пишет в `suppliers`, ставит `tasks.status=researched`. Прогресс — через
+  обновление статуса (фронт слушает Supabase realtime).
+- **`build-report`**: вход `task_id`. Ранжирует поставщиков (цена/наличие/
+  рейтинг) → текстовая сводка + `ranking` → пишет в `reports`.
+
+Секреты функций: `LLM_API_KEY`, `SEARCH_API_KEY` (через `supabase secrets set`).
+
+---
+
+## Фаза 2 — звонки (после MVP)
+
+ElevenLabs **Conversational AI / Agents** + **Twilio**:
+- `start-calls`: для выбранных поставщиков запускает исходящие звонки
+  (Outbound call API или Batch calling), передаёт dynamic variables —
+  что спросить (цена, наличие, сроки, доп. позиции из задачи). Язык агента =
+  `call_lang` (агент 2.0 умеет 32+ языка с автодетектом).
+- `call-webhook`: принимает post-call транскрипт → LLM извлекает
+  цену/наличие/сроки → обновляет `suppliers` и `calls` → пересобирает отчёт.
+
+Нужно: аккаунт Twilio + номер, ElevenLabs Agents (платно), настроенный агент.
+
+⚠️ Юридически: авто-обзвон ИИ-голосом регулируется по-разному (РФ/ЕС/Польша) —
+раскрытие, что звонит ИИ, согласие. Для пилота на знакомых поставщиках — ок.
+
+---
+
+## Фаза 3 — iOS
+
+Capacitor оборачивает веб-приложение → нативный iOS-проект → App Store.
+PWA-манифест и иконки делаем уже в MVP, чтобы обёртка была бесшовной.
+
+---
+
+## Этапы работ
+
+- **M0** — скелет фронта (`buyer/`): экраны-заглушки, роутинг, PWA-манифест,
+  деплой на Pages. *Без бэкенда — кликабельно.*
+- **M1** — Supabase проект: схема + RLS + Auth, подключение SDK, настройки/задача.
+- **M2** — `research` Edge Function + экран ресёрча + CRM с реальными данными.
+- **M3** — `build-report` + экран отчёта.
+- **M4** (фаза 2) — звонки ElevenLabs + Twilio.
+- **M5** (фаза 3) — Capacitor + сборка под iOS.
+
+---
+
+## Что понадобится от тебя
+
+- Supabase проект (URL + anon key — публичные, ок для клиента).
+- Ключ поисковика/LLM для ресёрча (выбрать провайдера).
+- Фаза 2: Twilio (номер) + ElevenLabs Agents.
+
+Открытый вопрос: какой провайдер ресёрча (Perplexity API — проще всего для
+«найти и структурировать»; Brave/SerpAPI + свой LLM — дешевле/гибче).
