@@ -170,7 +170,7 @@ const routes = {
   '': renderHome, 'home': renderHome,
   'new': renderNew, 'settings': renderSettings,
   'task': renderTask, 'research': renderResearch,
-  'crm': renderCRM, 'report': renderReport,
+  'crm': renderCRM, 'report': renderReport, 'script': renderScript,
 };
 function go(hash){ location.hash = hash; }
 function parseHash(){
@@ -396,8 +396,73 @@ function renderReport(id){
       <div class="row" style="gap:8px"><span style="font-size:18px">📞</span><b>Звонок ассистента</b>
         <span class="tag">фаза 2</span></div>
       <div class="muted" style="margin-top:8px;font-size:13px">Звоним <b>по одному с подтверждением</b> — не массовый обзвон. По каждому поставщику жмёшь «Позвонить (ИИ)», ассистент звонит на ${state.settings.callLang.toLowerCase()} языке, представляется как ИИ и уточняет цену, наличие и сроки.</div>
-      <button class="btn" disabled style="opacity:.5;margin-top:12px">📞 Позвонить (ИИ) — по одному</button>
+      <button class="btn sec" style="margin-top:12px" onclick="go('script/${t.id}')">📝 Скрипт звонка — что спросит ассистент</button>
+      <button class="btn" disabled style="opacity:.5;margin-top:10px">📞 Позвонить (ИИ) — по одному</button>
     </div>`;
+}
+
+/* ---------- call script (questions the AI asks each supplier) ---------- */
+function buildCallScript(t){
+  const s = state.settings;
+  const item = t.title.replace(/…$/,'');
+  return {
+    intro: `Здравствуйте! С вами автоматический ИИ-ассистент, звоню по поручению покупателя из ${s.city}. Хотел(а) бы уточнить наличие и условия по позиции: ${item}. Удобно ответить на пару вопросов?`,
+    questions: [
+      `Есть ли «${item}» в наличии сейчас? Если да — сколько на складе?`,
+      `Какая цена за единицу и за весь нужный объём?`,
+      `Есть ли скидка при заказе крупной партии?`,
+      `Когда можно забрать или получить? Сроки поставки?`,
+      `Возможна ли доставка в ${s.city}, и сколько она стоит?`,
+      `Какие способы оплаты? Нужна ли предоплата?`,
+      `Есть ли альтернативы/аналоги, если этой позиции нет?`,
+    ],
+    closing: `Спасибо большое! Я передам информацию покупателю, и при необходимости мы свяжемся для заказа. Хорошего дня!`,
+  };
+}
+function scriptToText(sc){
+  return [sc.intro, '', ...sc.questions.map((q,i)=>`${i+1}. ${q}`), '', sc.closing].join('\n');
+}
+function renderScript(id){
+  const t = findTask(id);
+  if(!t){ go('home'); return; }
+  const s = state.settings;
+  const sc = t.callScript || buildCallScript(t);
+  setHeader('Скрипт звонка', t.title, 'report/'+id);
+  document.getElementById('view').innerHTML = `
+    <div class="card" style="border-color:rgba(245,166,35,.4)">
+      <div class="row" style="gap:8px"><span style="font-size:18px">🗣</span><b>Как это работает</b></div>
+      <div class="muted" style="margin-top:8px;font-size:13px">
+        Ассистент произносит это <b>на ${s.callLang.toLowerCase()} языке</b> (ты пишешь на ${s.assistantLang.toLowerCase()}, перевод — на стороне агента).
+        Первая фраза — раскрытие, что звонит ИИ (требование EU AI Act). Звонок идёт <b>по подтверждению</b>, по одному поставщику.
+      </div>
+    </div>
+
+    <label>Приветствие (раскрытие ИИ)</label>
+    <textarea id="sc-intro" style="min-height:90px">${sc.intro}</textarea>
+
+    <label>Вопросы поставщику (по одному на строку)</label>
+    <textarea id="sc-q" style="min-height:200px">${sc.questions.join('\n')}</textarea>
+
+    <label>Завершение</label>
+    <textarea id="sc-out" style="min-height:80px">${sc.closing}</textarea>
+
+    <button class="btn" onclick="saveScript('${id}')">Сохранить скрипт</button>
+    <button class="btn ghost" onclick="resetScript('${id}')">Сбросить к авто-варианту</button>
+    <div class="demo-note">В фазе 2 этот текст передаётся агенту ElevenLabs как инструкция и dynamic variables.</div>`;
+}
+function saveScript(id){
+  const t = findTask(id); if(!t) return;
+  t.callScript = {
+    intro: val('sc-intro'),
+    questions: document.getElementById('sc-q').value.split('\n').map(x=>x.trim()).filter(Boolean),
+    closing: val('sc-out'),
+  };
+  saveState();
+  go('report/'+id);
+}
+function resetScript(id){
+  const t = findTask(id); if(!t) return;
+  delete t.callScript; saveState(); renderScript(id);
 }
 
 function renderSettings(){
