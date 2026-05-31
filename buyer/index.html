@@ -156,7 +156,8 @@ let state;     // initialized after data + seedTasks are declared (avoids TDZ)
 function loadState(){
   const def = {
     settings:{ buyerName:'Алёна Довгаленок', country:'Польша', city:'Краков',
-               assistantLang:'Русский', callLang:'Польский', currency:'PLN' },
+               assistantLang:'Русский', callLang:'Польский', currency:'PLN',
+               openaiKey:'', openaiModel:'gpt-4o' },
     tasks: seedTasks()
   };
   try{ const s = JSON.parse(localStorage.getItem(LS)); return s ? {...def, ...s} : def; }
@@ -202,18 +203,83 @@ function genSuppliers(seedStr, title, basePrice, currency, city){
   }
   return out;
 }
-function supScore(s){ return (s.inStock?100:0) - s.price + s.rating*8; }
+function supScore(s){ return (s.inStock?100:0) - (s.price??9999) + (s.rating??0)*8; }
 function buildReport(t){
   const ranked=[...t.suppliers].sort((a,b)=>supScore(b)-supScore(a));
   const top=ranked.slice(0,3);
   const inStockN=t.suppliers.filter(s=>s.inStock).length;
-  const min=Math.min(...t.suppliers.map(s=>s.price));
-  const max=Math.max(...t.suppliers.map(s=>s.price));
+  const prices=t.suppliers.map(s=>s.price).filter(p=>typeof p==='number');
   const cur=t.suppliers[0]?.currency||'';
+  const range=prices.length? `Разброс цен ${Math.min(...prices)}–${Math.max(...prices)} ${cur}. ` : 'У части поставщиков цену уточняем звонком. ';
+  const best=top[0];
   return {
-    summary:`Проверила ${t.suppliers.length} поставщиков в регионе, из них ${inStockN} с товаром в наличии. Разброс цен ${min}–${max} ${cur}. Лучший баланс цены, наличия и рейтинга — «${top[0]?.name}» (${top[0]?.price} ${cur}). Ниже — топ-3; полный список и фильтры в CRM.`,
+    summary:`Проверила ${t.suppliers.length} поставщиков в регионе, из них ${inStockN} с товаром в наличии. ${range}Лучший баланс цены, наличия и рейтинга — «${best?.name||'—'}»${best&&best.price!=null?` (${best.price} ${cur})`:''}. Ниже — топ-3; полный список и фильтры в CRM.`,
     ranking: top.map(s=>s.id)
   };
+}
+
+/* ---------- REAL research via OpenAI Responses API + web search ---------- */
+function num(x){ if(typeof x==='number') return x; const n=parseFloat(String(x).replace(',','.').replace(/[^\d.]/g,'')); return isNaN(n)?null:n; }
+function extractText(data){
+  if(typeof data.output_text==='string' && data.output_text) return data.output_text;
+  let out='';
+  (data.output||[]).forEach(it=>(it.content||[]).forEach(c=>{ if((c.type==='output_text'||c.type==='text')&&c.text) out+=c.text; }));
+  return out;
+}
+function parseJSONLoose(text){
+  let s=(text||'').trim().replace(/^```(?:json)?/i,'').replace(/```$/,'').trim();
+  const a=s.indexOf('['), b=s.lastIndexOf(']');
+  if(a>=0&&b>a) s=s.slice(a,b+1);
+  return JSON.parse(s);
+}
+function normalizeSupplier(o,i,cur){
+  return {
+    id:'s'+i,
+    name:(o.name||o.title||'—').toString(),
+    phone:(o.phone||o.telephone||'').toString(),
+    addr:(o.address||o.addr||'').toString(),
+    website:(o.website||'').toString().replace(/^https?:\/\//,'').replace(/\/$/,''),
+    price:num(o.price),
+    currency:(o.currency||cur||'').toString(),
+    inStock: o.inStock===true||o.in_stock===true ? true : (o.inStock===false||o.in_stock===false ? false : null),
+    rating:num(o.rating),
+    reviews:num(o.reviews)||0,
+    notes:(o.notes||'').toString(),
+    source:(o.source_url||o.source||o.website||'').toString().replace(/^https?:\/\//,''),
+  };
+}
+async function openaiResearch(t){
+  const s=state.settings;
+  const prompt=
+`Ты — ассистент-байер. Найди в интернете реальных поставщиков/магазины, где можно КУПИТЬ то, что нужно покупателю, в указанном регионе.
+Регион: ${s.city}, ${s.country}. Валюта по умолчанию: ${s.currency}.
+Задача покупателя: "${t.brief}".
+
+Найди как можно больше релевантных поставщиков (цель — 15–30), реальные названия, телефоны и сайты из региона.
+Верни СТРОГО JSON-массив объектов без markdown и без пояснений. Поля каждого объекта:
+{"name","phone","address","website","price"(число за единицу или null),"currency","inStock"(true/false/null),"rating"(0-5 или null),"reviews"(число или null),"notes"(кратко по-русски: наличие/доставка/условия),"source_url"}.
+Если точной цены/наличия нет — ставь null, не выдумывай. notes — на русском.`;
+  const body={ model:s.openaiModel||'gpt-4o', input:prompt };
+  // try modern then legacy web-search tool type
+  async function call(toolType){
+    const b = toolType ? {...body, tools:[{type:toolType}]} : body;
+    return fetch('https://api.openai.com/v1/responses',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.openaiKey},
+      body:JSON.stringify(b)
+    });
+  }
+  let res=await call('web_search');
+  if(!res.ok){
+    const txt=await res.text();
+    if(/web_search|tool|not supported|invalid/i.test(txt)) { res=await call('web_search_preview'); }
+    else throw new Error(`OpenAI ${res.status}: ${txt.slice(0,300)}`);
+  }
+  if(!res.ok){ const txt=await res.text(); res=await call(null); if(!res.ok){ throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0,300)}`);} }
+  const data=await res.json();
+  const arr=parseJSONLoose(extractText(data));
+  if(!Array.isArray(arr)||!arr.length) throw new Error('Модель не вернула список поставщиков.');
+  return arr.map((o,i)=>normalizeSupplier(o,i,s.currency));
 }
 
 function seedTasks(){
@@ -317,8 +383,8 @@ function renderNew(){
       <span class="pill">📞 звонки: ${state.settings.callLang}</span>
     </div>
     <button class="btn" onclick="createTask()">Запустить ресёрч →</button>
-    <button class="btn ghost" onclick="go('settings')">Изменить регион / язык</button>
-    <div class="demo-note">M0 · демо-данные. Реальный ресёрч подключается на этапе M2.</div>`;
+    <button class="btn ghost" onclick="go('settings')">Изменить регион / язык / ключ</button>
+    <div class="demo-note">${state.settings.openaiKey?'🟢 Реальный поиск через OpenAI + web search':'⚪️ Демо-режим — задай OpenAI-ключ в настройках для реального поиска'}</div>`;
 }
 function createTask(){
   const brief = document.getElementById('brief').value.trim();
@@ -365,37 +431,65 @@ function renderResearch(id){
     ['Готовлю CRM и отчёт','Ранжирую по цене / наличию / рейтингу'],
   ];
   const sources=['Allegro','OLX','Google Maps','Castorama','Leroy Merlin','OBI','PSB','Panorama Firm','каталоги hurtowni','прайс-листы'];
+  const useReal = !!state.settings.openaiKey && !t.suppliers.length;
   let cur = 0;
   const v = document.getElementById('view');
   function draw(){
-    const found = t.suppliers.length || (cur>=3 ? 8+cur*4 : 0);
+    if(t.researchError){
+      v.innerHTML = `
+        <div class="card" style="border-color:rgba(226,55,68,.5)">
+          <b>⚠️ Ошибка поиска OpenAI</b>
+          <div class="muted" style="font-size:13px;margin-top:8px;white-space:pre-wrap">${t.researchError}</div>
+        </div>
+        <button class="btn" onclick="retryResearch('${t.id}')">↻ Повторить</button>
+        <button class="btn ghost" onclick="go('settings')">Проверить ключ в настройках</button>`;
+      return;
+    }
+    const done = t.status==='reported';
+    const realRunning = useReal && !done;
+    const found = done? t.suppliers.length : (realRunning? '…' : (cur>=3?8+cur*4:0));
     v.innerHTML = `
       <div class="card center">
-        <div class="price" style="font-size:34px">${cur>=steps.length? t.suppliers.length : found}</div>
-        <div class="muted">${cur>=steps.length?'поставщиков найдено':'найдено на текущем шаге…'}</div>
-        ${cur<steps.length?`<div class="muted" style="font-size:12px;margin-top:6px">источник: ${sources[Math.min(cur*1+ (cur%2), sources.length-1)]}</div>`:''}
+        <div class="price" style="font-size:34px">${found}</div>
+        <div class="muted">${done?'поставщиков найдено':(realRunning?'идёт реальный поиск через OpenAI…':'найдено на текущем шаге…')}</div>
+        ${!done?`<div class="muted" style="font-size:12px;margin-top:6px">${realRunning?(state.settings.openaiModel||'gpt-4o')+' · web search · обычно 20–60 сек':'источник: '+sources[Math.min(cur,sources.length-1)]}</div>`:''}
       </div>
-      <div class="card">${steps.map((s,i)=>`
-      <div class="step ${i<cur?'done':i===cur?'active':''}">
-        <div class="dot">${i<cur?'✓':i+1}</div>
-        <div><div class="t">${s[0]}</div><div class="d">${s[1]}</div></div>
-      </div>`).join('')}</div>
-      ${cur>=steps.length?`<button class="btn" onclick="go('crm/${t.id}')">Открыть CRM (${t.suppliers.length}) →</button>
+      <div class="card">${steps.map((s,i)=>{
+        const cls = done?'done':(i<cur?'done':i===cur?'active':'');
+        return `<div class="step ${cls}"><div class="dot">${(done||i<cur)?'✓':i+1}</div>
+          <div><div class="t">${s[0]}</div><div class="d">${s[1]}</div></div></div>`;}).join('')}</div>
+      ${done?`<button class="btn" onclick="go('crm/${t.id}')">Открыть CRM (${t.suppliers.length}) →</button>
         <button class="btn ghost" onclick="go('chat/${t.id}')">💬 Уточнить поиск в чате</button>`:
-        `<div class="center muted">Демо M0 — имитация. На M2 здесь реальный Claude + веб-поиск.</div>`}`;
+        `<div class="center muted">${useReal?'Реальный поиск: OpenAI + web search':'Демо-режим. Задай OpenAI-ключ в настройках для реального поиска.'}</div>`}`;
   }
   draw();
-  if(t.status==='researching'){
-    const iv = setInterval(()=>{
-      cur++;
-      if(cur>=steps.length){
-        clearInterval(iv);
-        if(!t.suppliers.length){ t.suppliers = genSuppliers(t.id, t.title, 39, state.settings.currency, state.settings.city); t.report = buildReport(t); }
-        t.status='reported'; saveState();
+  if(t.status==='researching' && !t.researchError){
+    if(useReal){
+      const iv=setInterval(()=>{ if(parseHash().name!=='research'||t.status!=='researching'){clearInterval(iv);return;} cur=(cur+1)%steps.length; draw(); },1100);
+      if(!t._searching){
+        t._searching=true;
+        openaiResearch(t).then(sup=>{
+          t.suppliers=sup; t.report=buildReport(t); t.status='reported'; delete t.researchError;
+        }).catch(e=>{ t.researchError=String(e&&e.message||e); })
+        .finally(()=>{ t._searching=false; clearInterval(iv); saveState(); if(parseHash().name==='research') renderResearch(t.id); });
       }
-      if(parseHash().name==='research'){ draw(); } else { clearInterval(iv); }
-    }, 850);
-  } else { cur = steps.length; draw(); }
+    } else {
+      const iv = setInterval(()=>{
+        cur++;
+        if(cur>=steps.length){
+          clearInterval(iv);
+          if(!t.suppliers.length){ t.suppliers = genSuppliers(t.id, t.title, 39, state.settings.currency, state.settings.city); t.report = buildReport(t); }
+          t.status='reported'; saveState();
+        }
+        if(parseHash().name==='research'){ draw(); } else { clearInterval(iv); }
+      }, 850);
+    }
+  } else if(t.status==='reported'){ cur = steps.length; draw(); }
+}
+function retryResearch(id){
+  const t=findTask(id); if(!t) return;
+  delete t.researchError; t._searching=false; t.suppliers=[]; t.status='researching'; saveState();
+  renderResearch(id);
 }
 
 function renderCRM(id){
@@ -411,9 +505,9 @@ function renderCRM(id){
   ];
   const cmp = {
     name:(a,b)=>a.name.localeCompare(b.name),
-    price:(a,b)=>a.price-b.price,
-    stock:(a,b)=>(b.inStock-a.inStock),
-    rating:(a,b)=>(b.rating-a.rating),
+    price:(a,b)=>(a.price??1e9)-(b.price??1e9),
+    stock:(a,b)=>((b.inStock?1:0)-(a.inStock?1:0)),
+    rating:(a,b)=>(b.rating??0)-(a.rating??0),
     phone:(a,b)=>a.name.localeCompare(b.name),
   };
   function apply(arr){
@@ -457,14 +551,19 @@ function renderCRM(id){
   }
   draw();
 }
-function stars(r){return '★'.repeat(Math.round(r))+'☆'.repeat(5-Math.round(r));}
+function stars(r){ if(r==null) return ''; const n=Math.round(r); return '★'.repeat(n)+'☆'.repeat(Math.max(0,5-n)); }
+function stockCell(v){
+  if(v===true) return `<span class="dot-s in"></span>есть`;
+  if(v===false) return `<span class="dot-s out"></span>под заказ`;
+  return `<span class="dot-s" style="background:var(--muted)"></span>уточнить`;
+}
 function rowHTML(s,i){
   return `<tr class="${i===0?'row1':''}">
-    <td><div class="nm">${s.name}</div><div class="ad">📍 ${s.addr}</div></td>
-    <td class="pr">${s.price} ${s.currency}</td>
-    <td><span class="dot-s ${s.inStock?'in':'out'}"></span>${s.inStock?'есть':'под заказ'}</td>
-    <td>${s.rating} <span class="muted" style="font-size:11px">(${s.reviews})</span></td>
-    <td><a class="tel" href="tel:${s.phone.replace(/\s/g,'')}">${s.phone}</a></td>
+    <td><div class="nm">${s.name}</div><div class="ad">📍 ${s.addr||'—'}</div></td>
+    <td class="pr">${s.price!=null? s.price+' '+s.currency : '—'}</td>
+    <td>${stockCell(s.inStock)}</td>
+    <td>${s.rating!=null? s.rating+(s.reviews?` <span class="muted" style="font-size:11px">(${s.reviews})</span>`:'') : '—'}</td>
+    <td>${s.phone? `<a class="tel" href="tel:${s.phone.replace(/\s/g,'')}">${s.phone}</a>` : '<span class="muted">—</span>'}</td>
   </tr>`;
 }
 
@@ -768,12 +867,23 @@ function renderSettings(){
     <select id="cLang">${langs.map(l=>`<option ${l===s.callLang?'selected':''}>${l}</option>`).join('')}</select>
     <label>Валюта</label>
     <select id="curr">${curr.map(c=>`<option ${c===s.currency?'selected':''}>${c}</option>`).join('')}</select>
+
+    <h2>Реальный поиск через OpenAI</h2>
+    <div class="card">
+      <div class="muted" style="font-size:12px;margin-bottom:8px">Ключ хранится только в этом браузере (localStorage) и используется для прямых запросов к OpenAI. Для теста — ок; для продакшна перенесём на сервер.</div>
+      <label style="margin-top:0">OpenAI API key</label>
+      <input id="oaiKey" type="password" placeholder="sk-..." value="${s.openaiKey||''}" autocomplete="off">
+      <label>Модель</label>
+      <input id="oaiModel" value="${s.openaiModel||'gpt-4o'}" placeholder="gpt-4o">
+      <div class="muted" style="font-size:12px;margin-top:8px">${s.openaiKey?'✅ Ключ задан — ресёрч идёт через OpenAI с веб-поиском.':'Ключ не задан — ресёрч работает в демо-режиме.'}</div>
+    </div>
     <button class="btn" onclick="saveSettings()">Сохранить</button>`;
 }
 function saveSettings(){
   state.settings = {
     buyerName:val('buyerName'), country:val('country'), city:val('city'),
-    assistantLang:val('aLang'), callLang:val('cLang'), currency:val('curr')
+    assistantLang:val('aLang'), callLang:val('cLang'), currency:val('curr'),
+    openaiKey:val('oaiKey'), openaiModel:val('oaiModel')||'gpt-4o'
   };
   saveState(); go('home');
 }
