@@ -140,7 +140,7 @@
    ============================================================ */
 
 const LS = 'buyer.state.v2';
-const state = loadState();
+let state;     // initialized after data + seedTasks are declared (avoids TDZ)
 
 function loadState(){
   const def = {
@@ -161,10 +161,11 @@ const SUP_STREETS=['ul. Wielicka 250','al. Pokoju 67','ul. Nowohucka 92','ul. Za
 const SUP_NOTES_IN=['Доставка 1–2 дня','Самовывоз сегодня','Скидка 5–8% от партии','Есть весь объём на складе','Доставка по городу бесплатно от 1000','Резерв на 48 часов','Отгрузка в день заказа'];
 const SUP_NOTES_OUT=['Под заказ, ~3–5 дней','Поставка со склада в Варшаве','Нет нужного объёма, частично','Ожидается поступление через неделю','Только предзаказ'];
 
-function genSuppliers(seedStr, title, basePrice, currency){
+function genSuppliers(seedStr, title, basePrice, currency, city){
   const r = rng(hashStr(seedStr+'|'+title));
   const n = 22 + Math.floor(r()*8);              // 22–29 поставщиков
   const item = title.replace(/…$/,'');
+  const cityName = city || 'Kraków';
   const out=[];
   const used=new Set();
   for(let i=0;i<n;i++){
@@ -182,7 +183,7 @@ function genSuppliers(seedStr, title, basePrice, currency){
     out.push({
       id:'s'+i, name,
       phone:'+48 12 '+(300+Math.floor(r()*699))+' '+(10+Math.floor(r()*89))+' '+(10+Math.floor(r()*89)),
-      addr: street+', '+ (state.settings? state.settings.city : 'Kraków'),
+      addr: street+', '+ cityName,
       website: slug+'.pl', price, currency, inStock, rating, reviews,
       source: slug+'.pl',
       notes:(inStock?SUP_NOTES_IN:SUP_NOTES_OUT)[Math.floor(r()*(inStock?SUP_NOTES_IN.length:SUP_NOTES_OUT.length))],
@@ -208,10 +209,12 @@ function seedTasks(){
   const t={ id:'t1', title:'Гипсокартон Knauf 12.5мм, 40 листов',
     brief:'Нужен влагостойкий гипсокартон Knauf 12.5мм, ~40 листов, с доставкой в Краков на этой неделе. Интересует цена за лист и наличие на складе.',
     status:'reported', createdAt:'2026-05-30', chat:[], filters:{} };
-  t.suppliers=genSuppliers(t.id, t.title, 39, 'PLN');
+  t.suppliers=genSuppliers(t.id, t.title, 39, 'PLN', 'Краков');
   t.report=buildReport(t);
   return [t];
 }
+
+state = loadState();    // safe now: all consts above are initialized
 
 /* ---------- router ---------- */
 const routes = {
@@ -376,7 +379,7 @@ function renderResearch(id){
       cur++;
       if(cur>=steps.length){
         clearInterval(iv);
-        if(!t.suppliers.length){ t.suppliers = genSuppliers(t.id, t.title, 39, state.settings.currency); t.report = buildReport(t); }
+        if(!t.suppliers.length){ t.suppliers = genSuppliers(t.id, t.title, 39, state.settings.currency, state.settings.city); t.report = buildReport(t); }
         t.status='reported'; saveState();
       }
       if(parseHash().name==='research'){ draw(); } else { clearInterval(iv); }
