@@ -393,10 +393,10 @@ function renderReport(id){
         <a class="btn sec" style="text-decoration:none" href="tel:${s.phone.replace(/\s/g,'')}">📞 Позвонить · ${s.phone}</a>
       </div>`).join('')}
     <div class="card" style="border-style:dashed">
-      <div class="row" style="gap:8px"><span style="font-size:18px">📞</span><b>Авто-обзвон</b>
+      <div class="row" style="gap:8px"><span style="font-size:18px">📞</span><b>Звонок ассистента</b>
         <span class="tag">фаза 2</span></div>
-      <div class="muted" style="margin-top:8px;font-size:13px">Скоро ассистент сам обзвонит поставщиков на ${state.settings.callLang.toLowerCase()} языке и уточнит цены, наличие и сроки.</div>
-      <button class="btn" disabled style="opacity:.5;margin-top:12px">Обзвонить поставщиков</button>
+      <div class="muted" style="margin-top:8px;font-size:13px">Звоним <b>по одному с подтверждением</b> — не массовый обзвон. По каждому поставщику жмёшь «Позвонить (ИИ)», ассистент звонит на ${state.settings.callLang.toLowerCase()} языке, представляется как ИИ и уточняет цену, наличие и сроки.</div>
+      <button class="btn" disabled style="opacity:.5;margin-top:12px">📞 Позвонить (ИИ) — по одному</button>
     </div>`;
 }
 
