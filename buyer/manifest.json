@@ -1,0 +1,14 @@
+{
+  "name": "Байер · AI-ассистент покупок",
+  "short_name": "Байер",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f1115",
+  "theme_color": "#0f1115",
+  "lang": "ru",
+  "description": "AI-ассистент: ресёрч поставщиков, цен и отзывов в твоём регионе и отчёт, где выгоднее купить.",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b8cff"/>
+      <stop offset="1" stop-color="#3a6bff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0f1115"/>
+  <rect width="512" height="512" rx="112" fill="url(#g)" opacity="0.12"/>
+  <g fill="none" stroke="url(#g)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M132 140 h40 l34 196 a26 26 0 0 0 26 22 h120 a26 26 0 0 0 25-19 l28-110 h-210"/>
+    <circle cx="222" cy="396" r="20" fill="url(#g)" stroke="none"/>
+    <circle cx="356" cy="396" r="20" fill="url(#g)" stroke="none"/>
+  </g>
+  <circle cx="350" cy="150" r="46" fill="url(#g)"/>
+  <text x="350" y="168" font-family="-apple-system,Segoe UI,Roboto,sans-serif" font-size="56" font-weight="700" fill="#fff" text-anchor="middle">AI</text>
+</svg>
