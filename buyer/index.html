@@ -157,7 +157,7 @@ function loadState(){
   const def = {
     settings:{ buyerName:'Алёна Довгаленок', country:'Польша', city:'Краков',
                assistantLang:'Русский', callLang:'Польский', currency:'PLN',
-               openaiKey:'', openaiModel:'gpt-4o' },
+               openaiKey:'', openaiModel:'gpt-4.1' },
     tasks: seedTasks()
   };
   try{ const s = JSON.parse(localStorage.getItem(LS)); return s ? {...def, ...s} : def; }
@@ -259,7 +259,7 @@ async function openaiResearch(t){
 Верни СТРОГО JSON-массив объектов без markdown и без пояснений. Поля каждого объекта:
 {"name","phone","address","website","price"(число за единицу или null),"currency","inStock"(true/false/null),"rating"(0-5 или null),"reviews"(число или null),"notes"(кратко по-русски: наличие/доставка/условия),"source_url"}.
 Если точной цены/наличия нет — ставь null, не выдумывай. notes — на русском.`;
-  const body={ model:s.openaiModel||'gpt-4o', input:prompt };
+  const body={ model:s.openaiModel||'gpt-4.1', input:prompt };
   // try modern then legacy web-search tool type
   async function call(toolType){
     const b = toolType ? {...body, tools:[{type:toolType}]} : body;
@@ -452,7 +452,7 @@ function renderResearch(id){
       <div class="card center">
         <div class="price" style="font-size:34px">${found}</div>
         <div class="muted">${done?'поставщиков найдено':(realRunning?'идёт реальный поиск через OpenAI…':'найдено на текущем шаге…')}</div>
-        ${!done?`<div class="muted" style="font-size:12px;margin-top:6px">${realRunning?(state.settings.openaiModel||'gpt-4o')+' · web search · обычно 20–60 сек':'источник: '+sources[Math.min(cur,sources.length-1)]}</div>`:''}
+        ${!done?`<div class="muted" style="font-size:12px;margin-top:6px">${realRunning?(state.settings.openaiModel||'gpt-4.1')+' · web search · обычно 20–60 сек':'источник: '+sources[Math.min(cur,sources.length-1)]}</div>`:''}
       </div>
       <div class="card">${steps.map((s,i)=>{
         const cls = done?'done':(i<cur?'done':i===cur?'active':'');
@@ -857,6 +857,7 @@ function renderSettings(){
   const s = state.settings;
   const langs = ['Русский','Английский','Польский','Украинский','Немецкий','Испанский'];
   const curr = ['PLN','EUR','USD','UAH','RUB','GBP'];
+  const oaiModels = [...new Set([s.openaiModel||'gpt-4.1','gpt-4.1','o3','gpt-4.1-mini','gpt-4o','gpt-4o-mini'])];
   document.getElementById('view').innerHTML = `
     <label>Имя покупателя (звучит в звонке)</label><input id="buyerName" value="${s.buyerName||''}">
     <label>Страна</label><input id="country" value="${s.country}">
@@ -874,7 +875,8 @@ function renderSettings(){
       <label style="margin-top:0">OpenAI API key</label>
       <input id="oaiKey" type="password" placeholder="sk-..." value="${s.openaiKey||''}" autocomplete="off">
       <label>Модель</label>
-      <input id="oaiModel" value="${s.openaiModel||'gpt-4o'}" placeholder="gpt-4o">
+      <select id="oaiModel">${oaiModels.map(m=>`<option ${m===(s.openaiModel||'gpt-4.1')?'selected':''}>${m}</option>`).join('')}</select>
+      <div class="muted" style="font-size:11px;margin-top:4px">gpt-4.1 / o3 — глубже и точнее для ресёрча; gpt-4o-mini — дешевле и быстрее.</div>
       <div class="muted" style="font-size:12px;margin-top:8px">${s.openaiKey?'✅ Ключ задан — ресёрч идёт через OpenAI с веб-поиском.':'Ключ не задан — ресёрч работает в демо-режиме.'}</div>
     </div>
     <button class="btn" onclick="saveSettings()">Сохранить</button>`;
@@ -883,7 +885,7 @@ function saveSettings(){
   state.settings = {
     buyerName:val('buyerName'), country:val('country'), city:val('city'),
     assistantLang:val('aLang'), callLang:val('cLang'), currency:val('curr'),
-    openaiKey:val('oaiKey'), openaiModel:val('oaiModel')||'gpt-4o'
+    openaiKey:val('oaiKey'), openaiModel:val('oaiModel')||'gpt-4.1'
   };
   saveState(); go('home');
 }
