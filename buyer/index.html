@@ -274,9 +274,14 @@ function normalizeSupplier(o,i,cur){
 function dedupeSuppliers(arr){
   const seen=new Set(), out=[];
   for(const s of arr){
-    const key = (s.phone||'').replace(/\D/g,'') || (s.website||'').toLowerCase() || s.name.toLowerCase().trim();
-    if(key && seen.has(key)) continue;
-    if(key) seen.add(key);
+    const keys=[
+      (s.phone||'').replace(/\D/g,''),
+      (s.sourceUrl||'').toLowerCase().replace(/[?#].*/,''),
+      (s.website||'').toLowerCase().replace(/\/$/,''),
+      s.name.toLowerCase().trim()
+    ].filter(Boolean);
+    if(keys.some(k=>seen.has(k))) continue;
+    keys.forEach(k=>seen.add(k));
     out.push(s);
   }
   return out.map((s,i)=>({...s,id:'s'+i}));
@@ -571,7 +576,7 @@ function renderCRM(id){
   const v = document.getElementById('view');
   t.filters = t.filters || {};
   const expanded = new Set();
-  let lastReply='', inputVal='';
+  let lastReply='', inputVal='', busy=false;
   const hasDist = t.suppliers.some(s=>s.distanceKm!=null);
   let sort = hasDist?'distance':'price', dir = 1;
   const cols = [
@@ -670,15 +675,17 @@ function renderCRM(id){
     setTimeout(()=>{ const i=document.getElementById('crmin'); if(i&&!lastReply) i.focus(); },50);
   }
   async function submit(){
+    if(busy) return;
     const inp=document.getElementById('crmin');
     const text=((inp&&inp.value)||inputVal||'').trim(); if(!text) return;
     if(inp) inp.value=''; inputVal='';
     t.chat=t.chat||[];
     t.chat.push({role:'me',text});
-    // URL → fetch and parse page into CRM contact
-    const urlM=text.match(/^(https?:\/\/\S+)/i);
+    // URL anywhere in text → fetch and parse page into CRM contact
+    const urlM=text.match(/(https?:\/\/[^\s]+)/i);
+    busy=true;
     if(urlM){
-      const url=urlM[1];
+      const url=urlM[1].replace(/[.,;)]+$/,''); // trim trailing punctuation
       lastReply='⏳ Открываю страницу и извлекаю данные…';
       t.chat.push({role:'ai',text:lastReply});
       saveState(); draw();
@@ -694,43 +701,65 @@ function renderCRM(id){
         t.chat.push({role:'ai',text:lastReply});
       }
       if(t.report) t.report=buildReport(t);
-      saveState(); draw();
+      busy=false; saveState(); draw();
       return;
     }
     // Search command → re-run research (optionally with extra query)
-    if(/^\s*(найди|поищи|ищи|исследуй|search|find|ещё|добавь ещё|добавь еще|ещё поставщик|покажи ещё)/i.test(text)||
-       (!state.settings.openaiKey && /^\s*(найд|поищ|иск)/i.test(text))){
+    if(/^\s*(найди|поищи|ищи|исследуй|search|find|ещё|добавь ещё|добавь еще|ещё поставщик|покажи ещё)/i.test(text)){
       if(!state.settings.openaiKey){
         lastReply='Добавь ключ OpenAI в настройках — без него поиск недоступен.';
-        t.chat.push({role:'ai',text:lastReply}); saveState(); draw(); return;
+        t.chat.push({role:'ai',text:lastReply}); busy=false; saveState(); draw(); return;
       }
       const extra=text.replace(/^\s*(найди|поищи|ищи|исследуй|search|find|ещё|добавь ещё|добавь еще|ещё поставщик|покажи ещё)\s*/i,'').trim();
       const briefOrig=t.brief||t.title;
-      if(extra) t.brief=briefOrig+(extra?'\nДополнительно: '+extra:'');
+      if(extra) t.brief=briefOrig+'\nДополнительно: '+extra;
       lastReply='🔍 Ищу…';
       t.chat.push({role:'ai',text:lastReply}); saveState(); draw();
       try{
         const newSuppliers=await openaiResearch(t);
-        t.brief=briefOrig; // restore original
+        t.brief=briefOrig;
         const before=t.suppliers.length;
-        const combined=dedupeSuppliers([...t.suppliers,...newSuppliers]);
-        t.suppliers=combined;
+        t.suppliers=dedupeSuppliers([...t.suppliers,...newSuppliers]);
         t.chat.pop();
-        const added=t.suppliers.length-before;
-        lastReply=`Нашла ещё ${added>0?added:'0 новых'} поставщиков. Всего в CRM: ${t.suppliers.length}.`;
+        lastReply=`Нашла ${t.suppliers.length-before>0?t.suppliers.length-before:'0 новых'} поставщиков. Всего в CRM: ${t.suppliers.length}.`;
         t.chat.push({role:'ai',text:lastReply});
         if(t.report) t.report=buildReport(t);
       } catch(e){
-        t.brief=briefOrig;
-        t.chat.pop();
+        t.brief=briefOrig; t.chat.pop();
         lastReply=`Ошибка поиска: ${e.message||e}`;
         t.chat.push({role:'ai',text:lastReply});
       }
-      saveState(); draw(); return;
+      busy=false; saveState(); draw(); return;
     }
+    // Long/multiline text with phone numbers → extract contacts with LLM
+    const hasPhones=text.match(/\+?\d[\d\s\-]{7,}\d/g)||[];
+    const isBlock=text.includes('\n')||text.length>120||hasPhones.length>=1;
+    if(isBlock && state.settings.openaiKey){
+      lastReply='📋 Извлекаю контакты из текста…';
+      t.chat.push({role:'ai',text:lastReply}); saveState(); draw();
+      try{
+        const extracted=await extractContactsFromText(text);
+        t.chat.pop();
+        if(extracted.length){
+          const before=t.suppliers.length;
+          t.suppliers=dedupeSuppliers([...extracted,...t.suppliers]);
+          const added=t.suppliers.length-before;
+          lastReply=`Извлекла ${added} контакт${added===1?'':'а'} из текста. Всего в CRM: ${t.suppliers.length}.`;
+          if(t.report) t.report=buildReport(t);
+        } else {
+          lastReply='Не нашла контактов в этом тексте. Попробуй фильтр: «только в наличии», «до 40».';
+        }
+        t.chat.push({role:'ai',text:lastReply});
+      } catch(e){
+        t.chat.pop();
+        lastReply=`Ошибка: ${e.message||e}`;
+        t.chat.push({role:'ai',text:lastReply});
+      }
+      busy=false; saveState(); draw(); return;
+    }
+    busy=false;
     lastReply=applyRefine(t,text);
     if(lastReply) t.chat.push({role:'ai',text:lastReply});
-    else { lastReply=''; }
     if(t.report) t.report=buildReport(t);
     saveState(); draw();
   }
@@ -817,9 +846,9 @@ async function sendChat(id){
   t.chat.push({role:'me', text});
   inp.value='';
   // URL → parse page
-  const urlM=text.match(/^(https?:\/\/\S+)/i);
+  const urlM=text.match(/(https?:\/\/[^\s]+)/i);
   if(urlM){
-    const url=urlM[1];
+    const url=urlM[1].replace(/[.,;)]+$/,'');
     t.chat.push({role:'ai',text:'⏳ Открываю страницу…'});
     saveState(); renderChat._draw&&renderChat._draw();
     try{
@@ -851,11 +880,55 @@ async function sendChat(id){
     } catch(e){ t.brief=briefOrig; t.chat.pop(); t.chat.push({role:'ai',text:`Ошибка поиска: ${e.message||e}`}); }
     saveState(); renderChat._draw&&renderChat._draw(); return;
   }
+  // Long/multiline text → extract contacts
+  const hasPhones2=text.match(/\+?\d[\d\s\-]{7,}\d/g)||[];
+  if((text.includes('\n')||text.length>120||hasPhones2.length>=1) && state.settings.openaiKey){
+    t.chat.push({role:'ai',text:'📋 Извлекаю контакты из текста…'});
+    saveState(); renderChat._draw&&renderChat._draw();
+    try{
+      const extracted=await extractContactsFromText(text);
+      t.chat.pop();
+      if(extracted.length){
+        const before=t.suppliers.length;
+        t.suppliers=dedupeSuppliers([...extracted,...t.suppliers]);
+        const added=t.suppliers.length-before;
+        t.chat.push({role:'ai',text:`Извлекла ${added} контакт${added===1?'':'а'} из текста. Всего в CRM: ${t.suppliers.length}.`});
+        if(t.report) t.report=buildReport(t);
+      } else {
+        t.chat.push({role:'ai',text:'Контактов в тексте не нашла.'});
+      }
+    } catch(e){ t.chat.pop(); t.chat.push({role:'ai',text:`Ошибка: ${e.message||e}`}); }
+    saveState(); renderChat._draw&&renderChat._draw(); return;
+  }
   const reply=applyRefine(t, text);
   if(reply) t.chat.push({role:'ai', text:reply});
   if(t.report) t.report=buildReport(t);
   saveState();
   renderChat._draw && renderChat._draw();
+}
+async function extractContactsFromText(text){
+  const s=state.settings;
+  const res=await fetch('https://api.openai.com/v1/chat/completions',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.openaiKey},
+    body:JSON.stringify({
+      model:'gpt-4o-mini', max_tokens:800,
+      response_format:{type:'json_object'},
+      messages:[{role:'user',content:
+`Из текста извлеки список поставщиков/контактов. Верни JSON: {"contacts":[{"name","phone","address","website","price":null,"currency":null,"inStock":null,"why","notes","source_url":""}]}.
+Нет данных — ставь null. Каждый уникальный бизнес — отдельная запись. В поле why — 1 фраза по-русски что это за контакт.
+
+Текст:
+${text}`}]
+    })
+  });
+  const d=await res.json();
+  if(!res.ok) throw new Error(d.error?.message||'OpenAI error');
+  let parsed;
+  try{ parsed=JSON.parse(d.choices[0].message.content); } catch{ parsed={contacts:[]}; }
+  const arr=parsed.contacts||parsed.suppliers||parsed||[];
+  if(!Array.isArray(arr)) return [];
+  return arr.filter(o=>o.name).map((o,i)=>normalizeSupplier({...o,source_url:o.source_url||''},Date.now()+i,s.currency));
 }
 async function fetchSupplierFromUrl(url){
   const s=state.settings;
