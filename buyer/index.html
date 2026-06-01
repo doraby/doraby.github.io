@@ -435,7 +435,7 @@ function renderNav(active){
 
 /* ---------- screens ---------- */
 function renderContacts(){
-  setHeader('Звонки', `все поставщики · ${state.settings.city}`);
+  setHeader('Звонки', '');
   const v = document.getElementById('view');
   // collect all suppliers across all tasks, newest task first
   const all = [];
@@ -450,8 +450,22 @@ function renderContacts(){
       <button class="btn" style="margin-top:24px" onclick="go('new')">➕ Новая задача</button></div>`;
     return;
   }
-  // search
-  let q='';
+  let q='', expanded=new Set();
+  function callHistoryHtml(taskId, supId){
+    const t=findTask(taskId); if(!t) return '';
+    const calls=(t.calls||[]).filter(c=>c.supplierId===supId);
+    if(!calls.length) return '';
+    return calls.map(c=>{
+      const when=c.createdAt?new Date(c.createdAt).toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+      const isDone=c.status==='done';
+      const preview=c.transcript?.slice(-2).map(m=>`<div style="font-size:11px;color:var(--muted)"><b>${m.role==='ai'?'🤖':'👤'}</b> ${m.text}</div>`).join('')||'';
+      return `<div style="margin-top:8px;padding:8px;background:var(--panel2);border-radius:10px;font-size:12px">
+        <div class="row sb"><span>${isDone?'✅':'🔴'} ${when}</span>${isDone?`<button class="btn ghost" style="margin:0;padding:3px 8px;font-size:11px" onclick="event.stopPropagation();go('call/${taskId}/${supId}')">Подробнее</button>`:'<span class="muted">в процессе</span>'}</div>
+        ${preview}
+        ${c.extracted?.price!=null?`<div style="margin-top:4px;color:var(--good);font-weight:600">${c.extracted.price} ${c.extracted.currency||''}</div>`:''}
+      </div>`;
+    }).join('');
+  }
   function draw(){
     const list = q ? all.filter(s=>
       (s.name+s.addr+s.phone+s._taskTitle).toLowerCase().includes(q.toLowerCase())) : all;
@@ -463,33 +477,43 @@ function renderContacts(){
         const ph=s.phone?s.phone.replace(/\s/g,''):'';
         const priceTxt=s.price!=null?`${s.price} ${s.currency}`:'';
         const stockDot=s.inStock===true?'#1ba35a':s.inStock===false?'#e23744':'#aaa';
-        return `<div class="card" style="padding:14px">
+        const key=s._taskId+'|'+s.id;
+        const open=expanded.has(key);
+        const task=findTask(s._taskId);
+        const hasCalls=(task?.calls||[]).some(c=>c.supplierId===s.id);
+        return `<div class="card" style="padding:14px;cursor:pointer" data-ckey="${key}">
           <div class="row sb" style="gap:8px">
             <div style="flex:1;min-width:0">
-              <div style="font-weight:650;font-size:16px">${s.name}</div>
+              <div style="font-weight:650;font-size:16px">${open?'▾':'▸'} ${s.name}</div>
               ${s.addr?`<div class="muted" style="font-size:12px;margin-top:2px">📍 ${s.addr}</div>`:''}
               <div class="muted" style="font-size:11px;margin-top:3px">
                 <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${stockDot};vertical-align:middle;margin-right:4px"></span>
-                ${s._taskTitle}${priceTxt?` · ${priceTxt}`:''}
+                ${s._taskTitle}${priceTxt?` · ${priceTxt}`:''}${hasCalls?' · 📞':''}
               </div>
             </div>
             ${ph?`<a href="tel:${ph}" style="flex:none;background:var(--good);color:#fff;border:none;border-radius:50%;width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:22px;text-decoration:none" onclick="event.stopPropagation()">📞</a>`:''}
           </div>
-          ${ph?`<div style="font-size:14px;color:var(--accent);margin-top:8px">${s.phone}</div>`:''}
-          <div class="row" style="gap:8px;margin-top:10px">
-            ${ph?`<button class="btn sec" style="flex:1;padding:10px;font-size:14px" onclick="confirmCall('${s._taskId}','${s.id}')">🤖 AI звонок</button>`:''}
-            <button class="btn ghost" style="flex:1;margin:0;padding:10px;font-size:14px" onclick="go('task/${s._taskId}')">→ Задача</button>
-          </div>
+          ${open?`
+            ${ph?`<div style="font-size:14px;color:var(--accent);margin-top:8px">${s.phone}</div>`:''}
+            <div class="row" style="gap:8px;margin-top:10px">
+              ${ph?`<button class="btn sec" style="flex:1;padding:10px;font-size:14px" onclick="event.stopPropagation();confirmCall('${s._taskId}','${s.id}')">🤖 AI звонок</button>`:''}
+              <button class="btn ghost" style="flex:none;margin:0;padding:10px 14px;font-size:14px" onclick="event.stopPropagation();go('task/${s._taskId}')">→ Задача</button>
+            </div>
+            ${callHistoryHtml(s._taskId, s.id)}
+          `:''}
         </div>`;}).join('')}
       <button class="btn ghost" style="margin-top:4px" onclick="go('new')">➕ Новая задача / поиск</button>
       <div style="height:8px"></div>`;
     const inp=document.getElementById('csearch');
     if(inp){ inp.oninput=e=>{ q=e.target.value; draw(); }; }
+    v.querySelectorAll('[data-ckey]').forEach(el=>el.onclick=()=>{
+      const k=el.dataset.ckey; expanded.has(k)?expanded.delete(k):expanded.add(k); draw();
+    });
   }
   draw();
 }
 function renderHome(){
-  setHeader('Байер', `${state.settings.city}, ${state.settings.country}`);
+  setHeader('Задачи', '');
   const v = document.getElementById('view');
   if(!state.tasks.length){
     v.innerHTML = `
@@ -540,11 +564,10 @@ function saveTaskTitle(id, text){
 }
 
 function renderNew(){
-  setHeader('Новая задача', 'Что нужно купить?', 'home');
+  setHeader('Новая задача', '', 'home');
   document.getElementById('view').innerHTML = `
-    <label>Опиши задачу <span class="muted" style="font-weight:400">— текстом или голосом 🎤</span></label>
     <div class="ta-wrap">
-      <textarea id="brief" placeholder="Напр.: Нужен влагостойкий гипсокартон Knauf 12.5мм, 40 листов, с доставкой в Краков на этой неделе. Узнать цену за лист и наличие."></textarea>
+      <textarea id="brief" placeholder="Опиши задачу — текстом или голосом 🎤"></textarea>
       <button id="micbtn" class="micbtn" onclick="toggleDictation()" title="Диктовать голосом">🎤</button>
     </div>
     <div id="micnote" class="muted" style="font-size:12px;margin-top:6px;min-height:16px"></div>
@@ -554,8 +577,7 @@ function renderNew(){
       <span class="pill">📞 звонки: ${state.settings.callLang}</span>
     </div>
     <button class="btn" onclick="createTask()">Запустить ресёрч →</button>
-    <button class="btn ghost" onclick="go('settings')">Изменить регион / язык / ключ</button>
-    <div class="demo-note">${state.settings.openaiKey?'🟢 Реальный поиск через OpenAI + web search':'⚪️ Демо-режим — задай OpenAI-ключ в настройках для реального поиска'}</div>`;
+    <button class="btn ghost" onclick="go('settings')">Изменить регион / язык / ключ</button>`;
 }
 
 /* ---------- voice dictation via Web Speech API ---------- */
@@ -733,7 +755,7 @@ function renderCRM(id, taskMode){
   if(!t){ go('home'); return; }
   const otherTasks = state.tasks.filter(x=>x.id!==id&&x.suppliers?.length);
   if(taskMode){
-    setHeader(t.title||'Задача', statusLabel(t.status), 'home');
+    setHeader(t.title||'Задача', '', 'home');
   } else {
     setHeader(
       otherTasks.length
@@ -833,8 +855,9 @@ function renderCRM(id, taskMode){
             sort===k?` <span class="ar">${dir>0?'▲':'▼'}</span>`:''}</th>`).join('')}</tr></thead>
         <tbody>${list.map((s,i)=>rowFor(s,i)).join('')}</tbody>
       </table></div></div>
-      <div class="demo-note">Нажми на строку — обоснование, источник и кнопка удаления · заголовок — сортировка</div>`
+      `
       }
+      ${taskMode?`<div id="inline-script" style="margin-top:16px"></div>`:''}
       <div style="height:96px"></div>
       <div class="crmbar">
         ${lastReply?`<div class="crm-reply">🤖 ${lastReply}</div>`:''}
@@ -975,6 +998,37 @@ function renderCRM(id, taskMode){
     saveState(); draw();
   }
   draw();
+  if(taskMode) renderInlineScript(t);
+}
+async function renderInlineScript(t){
+  const el=document.getElementById('inline-script'); if(!el) return;
+  if(!t.callScript){
+    el.innerHTML=`<div class="muted" style="font-size:13px;text-align:center;padding:16px 0">📝 <button class="btn ghost" style="margin:0;display:inline;padding:4px 10px;font-size:13px" onclick="(async()=>{document.getElementById('inline-script').innerHTML='<div class=\\'muted\\' style=\\'text-align:center;padding:16px\\'>⏳ Генерирую скрипт…</div>';const tt=findTask('${t.id}');tt.callScript=await buildAiCallScript(tt);saveState();renderInlineScript(tt);})()">Сгенерировать скрипт звонка</button></div>`;
+    return;
+  }
+  const sc=t.callScript;
+  el.innerHTML=`<div style="margin-top:8px">
+    <div class="row sb" style="margin-bottom:10px">
+      <b>📝 Скрипт звонка · ${sc._lang||state.settings.callLang}</b>
+      <button class="btn ghost" style="margin:0;padding:5px 10px;width:auto;font-size:12px" onclick="(async()=>{const tt=findTask('${t.id}');delete tt.callScript;saveState();renderInlineScript(tt);})()">🔄</button>
+    </div>
+    <div class="card" style="margin-bottom:8px">
+      <div class="muted" style="font-size:11px;margin-bottom:4px">Приветствие</div>
+      <div style="font-size:13px;line-height:1.5">${sc.intro||''}</div>
+    </div>
+    ${sc.questions?.length?`<div class="card" style="margin-bottom:8px">
+      <div class="muted" style="font-size:11px;margin-bottom:4px">Вопросы</div>
+      <ol style="margin:0;padding-left:18px;font-size:13px;line-height:1.9">${sc.questions.map(q=>`<li>${q}</li>`).join('')}</ol>
+    </div>`:''}
+    ${sc.negotiate?.length?`<div class="card" style="margin-bottom:8px">
+      <div class="muted" style="font-size:11px;margin-bottom:4px">Торг</div>
+      <ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.9">${sc.negotiate.map(q=>`<li>${q}</li>`).join('')}</ul>
+    </div>`:''}
+    <div class="card">
+      <div class="muted" style="font-size:11px;margin-bottom:4px">Завершение</div>
+      <div style="font-size:13px;line-height:1.5">${sc.closing||''}</div>
+    </div>
+  </div>`;
 }
 /* ---------- CRM map (Leaflet + OSM + Nominatim geocoding) ---------- */
 let _leafletReady=null;
