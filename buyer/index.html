@@ -679,7 +679,7 @@ function renderCRM(id){
     const urlM=text.match(/^(https?:\/\/\S+)/i);
     if(urlM){
       const url=urlM[1];
-      lastReply='⏳ Загружаю страницу…';
+      lastReply='⏳ Открываю страницу и извлекаю данные…';
       t.chat.push({role:'ai',text:lastReply});
       saveState(); draw();
       try{
@@ -791,44 +791,61 @@ function sendChat(id){
   renderChat._draw && renderChat._draw();
 }
 async function fetchSupplierFromUrl(url){
+  const s=state.settings;
+  const domain=new URL(url).hostname.replace(/^www\./,'');
+  // Preferred path: let the model OPEN the page via web_search and extract structured data.
+  // Robust for JS-heavy sites (OLX, Allegro) where a raw CORS-proxy fetch returns an empty shell.
+  if(s.openaiKey){
+    const prompt=
+`Открой эту страницу объявления/товара и извлеки данные продавца. Используй веб-поиск, чтобы зайти на саму страницу.
+
+URL: ${url}
+
+Верни СТРОГО ОДИН JSON-объект без markdown, со всеми полями (нет данных — ставь null):
+{"name"(название продавца/компании или заголовок объявления),"phone"(телефон если показан),"address"(город/адрес),"website","price"(число за единицу),"currency","inStock"(true/false/null),"rating"(0-5/null),"reviews"(число/null),"why"(1 фраза по-русски: что это за предложение),"notes"(по-русски: краткое описание товара, состояние, условия, доставка),"source_url"(=${url})}.`;
+    const body={ model:s.openaiModel||'gpt-5.4', input:prompt };
+    if(/^(gpt-5|o\d)/.test(body.model)) body.reasoning={ effort:'medium' };
+    const callOpenAI=(toolType)=>fetch('https://api.openai.com/v1/responses',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.openaiKey},
+      body:JSON.stringify(toolType?{...body,tools:[{type:toolType}]}:body)
+    });
+    let res=await callOpenAI('web_search');
+    if(!res.ok){
+      const txt=await res.text();
+      if(/web_search|tool|not supported|invalid/i.test(txt)) res=await callOpenAI('web_search_preview');
+      else throw new Error(`OpenAI ${res.status}: ${txt.slice(0,200)}`);
+    }
+    if(!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0,200)}`);
+    const data=await res.json();
+    let obj=parseJSONLoose(extractText(data));
+    if(Array.isArray(obj)) obj=obj[0];
+    if(!obj||typeof obj!=='object') throw new Error('модель не вернула данные');
+    const sup=normalizeSupplier({...obj, source_url:obj.source_url||url}, Date.now(), s.currency);
+    if(!sup.name||sup.name==='—') sup.name=domain;
+    if(!sup.website) sup.website=domain;
+    if(!sup.why) sup.why='Добавлено по ссылке';
+    sup.id='s'+Date.now();
+    return sup;
+  }
+  // Fallback without key: fetch via CORS proxy and pull meta tags + regex.
   const proxy=`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
   const r=await fetch(proxy);
-  if(!r.ok) throw new Error('HTTP '+r.status);
+  if(!r.ok) throw new Error('добавь ключ OpenAI в настройках для разбора ссылок');
   const d=await r.json();
   const html=d.contents||'';
-  const tmp=document.createElement('div'); tmp.innerHTML=html;
-  const text=(tmp.textContent||'').replace(/\s+/g,' ').trim().slice(0,5000);
+  const meta=(p)=>{ const m=html.match(new RegExp(`<meta[^>]+(?:property|name)=["']${p}["'][^>]+content=["']([^"']+)`,'i')); return m?m[1].trim():''; };
   const titleM=html.match(/<title[^>]*>([^<]+)<\/title>/i);
-  const pageTitle=(titleM?titleM[1].trim():'').replace(/\s*[-|·].*$/,'').trim();
-  const domain=new URL(url).hostname.replace(/^www\./,'');
-  let info={name:pageTitle||domain,phone:'',address:'',price:null,
-    currency:state.settings.currency,inStock:null,description:''};
-  if(state.settings.openaiKey){
-    try{
-      const res=await fetch('https://api.openai.com/v1/chat/completions',{
-        method:'POST',
-        headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.openaiKey},
-        body:JSON.stringify({model:'gpt-4o-mini',max_tokens:350,
-          response_format:{type:'json_object'},
-          messages:[{role:'user',content:`Extract seller info from this listing page. Return JSON: {"name":"","phone":"","address":"","price":null,"currency":null,"inStock":null,"description":""}\n\nURL: ${url}\nTitle: ${pageTitle}\nContent: ${text}`}]})
-      });
-      const jd=await res.json();
-      if(res.ok) info={...info,...JSON.parse(jd.choices[0].message.content)};
-    } catch(e){}
-  } else {
-    const phM=text.match(/(\+?48[\s\-]?\d{3}[\s\-]?\d{3}[\s\-]?\d{3}|\d{3}[\s\-]?\d{3}[\s\-]?\d{3})/);
-    if(phM) info.phone=phM[1];
-    const prM=text.match(/(\d[\d\s,.]+)\s*(PLN|zł|EUR|€|USD|\$)/i);
-    if(prM){ info.price=parseFloat(prM[1].replace(/\s/g,'').replace(',','.')); info.currency=prM[2].replace('zł','PLN'); }
-    const inStockM=/dostępn|w stock|в наличии|jest|есть/i.test(text);
-    if(inStockM) info.inStock=true;
-  }
-  return{id:'s'+Date.now(),name:info.name||domain,phone:info.phone||'',
-    addr:info.address||'',website:domain,
-    price:typeof info.price==='number'?info.price:null,
-    currency:info.currency||state.settings.currency,
-    inStock:info.inStock??null,rating:null,reviews:0,distanceKm:null,
-    why:`Добавлено по ссылке`,notes:info.description||'',sourceUrl:url,source:domain};
+  const name=(meta('og:title')||(titleM?titleM[1]:'')||domain).replace(/\s*[-|·•].*$/,'').trim();
+  const tmp=document.createElement('div'); tmp.innerHTML=html;
+  const text=(tmp.textContent||'').replace(/\s+/g,' ').trim();
+  const phM=text.match(/(\+?48[\s\-]?\d{3}[\s\-]?\d{3}[\s\-]?\d{3}|\d{3}[\s\-]?\d{3}[\s\-]?\d{3})/);
+  const prM=(meta('product:price:amount')||text).match(/(\d[\d\s,.]*\d|\d)\s*(PLN|zł|EUR|€|USD|\$)?/i);
+  return{id:'s'+Date.now(),name,phone:phM?phM[1]:'',addr:'',website:domain,
+    price:prM?parseFloat(prM[1].replace(/\s/g,'').replace(',','.')):null,
+    currency:(meta('product:price:currency')||s.currency),
+    inStock:/dostępn|в наличии|есть/i.test(text)?true:null,rating:null,reviews:0,distanceKm:null,
+    why:'Добавлено по ссылке',notes:(meta('og:description')||'').slice(0,200),sourceUrl:url,source:domain};
 }
 function applyRefine(t, text){
   t.filters=t.filters||{};
