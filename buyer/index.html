@@ -60,6 +60,13 @@
     color:var(--txt);border-radius:12px;padding:12px 14px;font:inherit;outline:none}
   input:focus,textarea:focus,select:focus{border-color:var(--accent)}
   textarea{min-height:120px;resize:vertical}
+  .ta-wrap{position:relative}
+  .ta-wrap textarea{padding-right:54px}
+  .micbtn{position:absolute;right:10px;bottom:12px;width:40px;height:40px;border-radius:50%;
+    border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-size:19px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center}
+  .micbtn:active{transform:scale(.94)}
+  .micbtn.rec{background:var(--bad);color:#fff;border-color:var(--bad);animation:pulse 1.2s infinite}
   .btn{display:block;width:100%;text-align:center;border:none;border-radius:14px;
     padding:15px;font:inherit;font-weight:650;cursor:pointer;margin-top:18px;
     background:linear-gradient(180deg,var(--accent),var(--accent2));color:#fff}
@@ -375,9 +382,13 @@ function taskCard(t){
 function renderNew(){
   setHeader('Новая задача', 'Что нужно купить?', 'home');
   document.getElementById('view').innerHTML = `
-    <label>Опиши задачу</label>
-    <textarea id="brief" placeholder="Напр.: Нужен влагостойкий гипсокартон Knauf 12.5мм, 40 листов, с доставкой в Краков на этой неделе. Узнать цену за лист и наличие."></textarea>
-    <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap">
+    <label>Опиши задачу <span class="muted" style="font-weight:400">— текстом или голосом 🎤</span></label>
+    <div class="ta-wrap">
+      <textarea id="brief" placeholder="Напр.: Нужен влагостойкий гипсокартон Knauf 12.5мм, 40 листов, с доставкой в Краков на этой неделе. Узнать цену за лист и наличие."></textarea>
+      <button id="micbtn" class="micbtn" onclick="toggleDictation()" title="Диктовать голосом">🎤</button>
+    </div>
+    <div id="micnote" class="muted" style="font-size:12px;margin-top:6px;min-height:16px"></div>
+    <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
       <span class="pill">📍 ${state.settings.city}</span>
       <span class="pill">🗣 задача: ${state.settings.assistantLang}</span>
       <span class="pill">📞 звонки: ${state.settings.callLang}</span>
@@ -385,6 +396,30 @@ function renderNew(){
     <button class="btn" onclick="createTask()">Запустить ресёрч →</button>
     <button class="btn ghost" onclick="go('settings')">Изменить регион / язык / ключ</button>
     <div class="demo-note">${state.settings.openaiKey?'🟢 Реальный поиск через OpenAI + web search':'⚪️ Демо-режим — задай OpenAI-ключ в настройках для реального поиска'}</div>`;
+}
+
+/* ---------- voice dictation via Web Speech API ---------- */
+const SPEECH_LANG = {'Русский':'ru-RU','Английский':'en-US','Польский':'pl-PL','Украинский':'uk-UA','Немецкий':'de-DE','Испанский':'es-ES'};
+let recog=null, recBase='';
+function toggleDictation(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const note=document.getElementById('micnote'); const btn=document.getElementById('micbtn');
+  if(!SR){ note.textContent='⚠️ Голосовой ввод не поддерживается этим браузером. Лучше всего работает в Chrome или Safari.'; return; }
+  if(recog){ recog.stop(); return; }   // toggle off
+  const ta=document.getElementById('brief');
+  recBase = ta.value.trim();
+  recog = new SR();
+  recog.lang = SPEECH_LANG[state.settings.assistantLang] || 'ru-RU';
+  recog.continuous = true; recog.interimResults = true;
+  recog.onstart = ()=>{ btn.classList.add('rec'); note.textContent='🔴 Слушаю… говори, потом нажми микрофон ещё раз, чтобы остановить.'; };
+  recog.onerror = e=>{ note.textContent = e.error==='not-allowed' ? '⚠️ Нет доступа к микрофону — разреши его в браузере.' : '⚠️ Ошибка распознавания: '+e.error; };
+  recog.onresult = e=>{
+    let txt='';
+    for(let i=0;i<e.results.length;i++) txt += e.results[i][0].transcript;
+    ta.value = (recBase ? recBase+' ' : '') + txt;
+  };
+  recog.onend = ()=>{ if(btn) btn.classList.remove('rec'); if(note) note.textContent='✓ Готово. Можно отредактировать текст или запустить ресёрч.'; recog=null; };
+  recog.start();
 }
 function createTask(){
   const brief = document.getElementById('brief').value.trim();
