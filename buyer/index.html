@@ -1548,7 +1548,7 @@ async function buildAiCallScript(t){
   const res=await fetch('https://api.openai.com/v1/chat/completions',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.openaiKey},
-    body:JSON.stringify({model:'gpt-4o-mini',max_tokens:700,
+    body:JSON.stringify({model:s.openaiModel||'gpt-5.4',max_tokens:700,
       messages:[{role:'user',content:
 `Ты — помощник байера. Напиши скрипт звонка поставщику на языке: ${lang}.
 ${lang==='Польский'?'ВАЖНО: используй исключительно формальное обращение — "Pan/Pani", никогда не "ty/twoje/jesteś". Это деловой звонок.'
