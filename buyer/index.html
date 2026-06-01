@@ -435,10 +435,58 @@ function renderNav(active){
 
 /* ---------- screens ---------- */
 function renderContacts(){
-  // Find most recent task with suppliers, show its CRM
-  const t = state.tasks.find(t=>t.suppliers&&t.suppliers.length) || state.tasks[0];
-  if(!t){ renderHome(); return; }
-  renderCRM(t.id);
+  setHeader('Звонки', `все поставщики · ${state.settings.city}`);
+  const v = document.getElementById('view');
+  // collect all suppliers across all tasks, newest task first
+  const all = [];
+  for(const t of state.tasks){
+    for(const s of (t.suppliers||[])){
+      if(s.phone||s.website) all.push({...s, _taskId:t.id, _taskTitle:t.title});
+    }
+  }
+  if(!all.length){
+    v.innerHTML=`<div class="empty"><div class="ic">📞</div>
+      <div style="margin-top:12px">Поставщиков пока нет</div>
+      <button class="btn" style="margin-top:24px" onclick="go('new')">➕ Новая задача</button></div>`;
+    return;
+  }
+  // search
+  let q='';
+  function draw(){
+    const list = q ? all.filter(s=>
+      (s.name+s.addr+s.phone+s._taskTitle).toLowerCase().includes(q.toLowerCase())) : all;
+    v.innerHTML=`
+      <input id="csearch" placeholder="🔍 Поиск по имени, телефону, задаче…" value="${q}"
+        style="margin-bottom:12px">
+      ${list.length===0?'<div class="empty"><div class="ic">🔍</div><div>Ничего не найдено</div></div>':''}
+      ${list.map(s=>{
+        const ph=s.phone?s.phone.replace(/\s/g,''):'';
+        const priceTxt=s.price!=null?`${s.price} ${s.currency}`:'';
+        const stockDot=s.inStock===true?'#1ba35a':s.inStock===false?'#e23744':'#aaa';
+        return `<div class="card" style="padding:14px">
+          <div class="row sb" style="gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:650;font-size:16px">${s.name}</div>
+              ${s.addr?`<div class="muted" style="font-size:12px;margin-top:2px">📍 ${s.addr}</div>`:''}
+              <div class="muted" style="font-size:11px;margin-top:3px">
+                <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${stockDot};vertical-align:middle;margin-right:4px"></span>
+                ${s._taskTitle}${priceTxt?` · ${priceTxt}`:''}
+              </div>
+            </div>
+            ${ph?`<a href="tel:${ph}" style="flex:none;background:var(--good);color:#fff;border:none;border-radius:50%;width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:22px;text-decoration:none" onclick="event.stopPropagation()">📞</a>`:''}
+          </div>
+          ${ph?`<div style="font-size:14px;color:var(--accent);margin-top:8px">${s.phone}</div>`:''}
+          <div class="row" style="gap:8px;margin-top:10px">
+            ${ph?`<button class="btn sec" style="flex:1;padding:10px;font-size:14px" onclick="confirmCall('${s._taskId}','${s.id}')">🤖 AI звонок</button>`:''}
+            <button class="btn ghost" style="flex:1;margin:0;padding:10px;font-size:14px" onclick="go('task/${s._taskId}')">→ Задача</button>
+          </div>
+        </div>`;}).join('')}
+      <button class="btn ghost" style="margin-top:4px" onclick="go('new')">➕ Новая задача / поиск</button>
+      <div style="height:8px"></div>`;
+    const inp=document.getElementById('csearch');
+    if(inp){ inp.oninput=e=>{ q=e.target.value; draw(); }; }
+  }
+  draw();
 }
 function renderHome(){
   setHeader('Байер', `${state.settings.city}, ${state.settings.country}`);
@@ -575,136 +623,34 @@ function findTask(id){ return state.tasks.find(t=>t.id===id); }
 function renderTask(id){
   const t = findTask(id);
   if(!t){ go('home'); return; }
-  setHeader(t.title||'Задача', statusLabel(t.status), 'home');
   if(t.status==='researching'){ go('research/'+t.id); return; }
-  // Combined task view: brief + report + full supplier list + CRM bar
-  renderTaskFull(t);
+  // Task view = CRM table with brief + analysis on top
+  renderCRM(id, true);
 }
-function renderTaskFull(t){
+function taskTopHtml(t){
   const id=t.id;
-  setHeader(t.title||'Задача', statusLabel(t.status), 'home');
-  const v=document.getElementById('view');
-  t.filters=t.filters||{};
-  const expanded=new Set();
-  let inputVal='', busy=false, lastReply='';
-  const hasDist=t.suppliers.some(s=>s.distanceKm!=null);
   const neg=t.report?.negotiate||[];
-  function draw(){
-    const sup=[...t.suppliers].sort((a,b)=>supScore(b)-supScore(a));
-    v.innerHTML=`
-      <!-- editable brief -->
-      <details style="margin-bottom:12px">
-        <summary style="cursor:pointer;color:var(--muted);font-size:13px">📋 Задача (нажми чтобы редактировать)</summary>
-        <div contenteditable="true" spellcheck="false"
-          style="margin-top:8px;font-size:14px;outline:none;line-height:1.5;white-space:pre-wrap;background:var(--panel2);border-radius:12px;padding:12px"
-          onblur="(function(el){const tt=findTask('${id}');if(tt){tt.brief=el.textContent.trim();saveState();}})(this)">${t.brief||''}</div>
-      </details>
-      <!-- report summary -->
-      ${t.report?`<div class="card" style="margin-bottom:10px">
-        <div class="row sb" style="gap:8px">
-          <div class="row" style="gap:6px"><span>💡</span><b>Анализ</b></div>
-          <button class="btn ghost" style="margin:0;padding:5px 10px;width:auto;font-size:12px" onclick="refreshReport('${id}')">🔄</button>
-        </div>
-        <div style="margin-top:8px;font-size:14px;line-height:1.5">${t.report.summary}</div>
-        ${neg.length?`<div style="margin-top:10px;font-size:13px;color:var(--good);font-weight:600">🤝 Как торговаться:</div>
-          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7;color:var(--txt)">${neg.map(h=>`<li>${h}</li>`).join('')}</ul>`:''}
-      </div>`:`<button class="btn ghost" style="margin-bottom:12px" onclick="refreshReport('${id}')">💡 Сгенерировать анализ</button>`}
-      <!-- supplier list -->
-      <div class="row sb" style="margin-bottom:8px">
-        <h2 style="margin:0">Поставщики · ${sup.length}</h2>
-        <div class="row" style="gap:6px">
-          <button class="btn ghost" style="margin:0;padding:6px 10px;width:auto;font-size:12px" onclick="go('crm/${id}')">🗂 CRM</button>
-          <button class="btn ghost" style="margin:0;padding:6px 10px;width:auto;font-size:12px" onclick="go('script/${id}')">📝 Скрипт</button>
-        </div>
+  return `
+    <details style="margin-bottom:12px">
+      <summary style="cursor:pointer;color:var(--muted);font-size:13px">📋 Задача (нажми чтобы редактировать)</summary>
+      <div contenteditable="true" spellcheck="false"
+        style="margin-top:8px;font-size:14px;outline:none;line-height:1.5;white-space:pre-wrap;background:var(--panel2);border-radius:12px;padding:12px"
+        onblur="(function(el){const tt=findTask('${id}');if(tt){tt.brief=el.textContent.trim();saveState();}})(this)">${t.brief||''}</div>
+    </details>
+    ${t.report?`<div class="card" style="margin-bottom:10px">
+      <div class="row sb" style="gap:8px">
+        <div class="row" style="gap:6px"><span>💡</span><b>Анализ</b></div>
+        <button class="btn ghost" style="margin:0;padding:5px 10px;width:auto;font-size:12px" onclick="refreshReport('${id}')">🔄</button>
       </div>
-      ${sup.map(s=>{
-        const ph=s.phone?s.phone.replace(/\s/g,''):'';
-        const priceTxt=s.price!=null?`${s.price} ${s.currency}`:'';
-        const stockColor=s.inStock===true?'var(--good)':s.inStock===false?'var(--bad)':'var(--muted)';
-        const open=expanded.has(s.id);
-        return `<div class="card" style="padding:12px;margin-bottom:8px">
-          <div class="row" style="gap:10px;cursor:pointer" data-exp="${s.id}">
-            <span style="width:8px;height:8px;border-radius:50%;background:${stockColor};flex:none;margin-top:6px"></span>
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:650">${s.name}</div>
-              ${s.addr?`<div class="muted" style="font-size:12px">📍 ${s.addr}</div>`:''}
-              ${priceTxt?`<div style="font-size:13px;color:var(--accent);font-weight:600">${priceTxt}</div>`:''}
-            </div>
-            ${ph?`<a href="tel:${ph}" onclick="event.stopPropagation()"
-              style="flex:none;width:44px;height:44px;border-radius:50%;background:var(--good);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;text-decoration:none">📞</a>`:''}
-          </div>
-          ${open?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:13px">
-            ${s.notes?`<div style="margin-bottom:6px;color:var(--muted)">${s.notes}</div>`:''}
-            ${s.why?`<div style="margin-bottom:6px">${s.why}</div>`:''}
-            ${s.sourceUrl?`<a href="${s.sourceUrl}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px">🔗 источник</a>`:''}
-            <div class="row" style="gap:6px;margin-top:10px">
-              ${ph?`<button class="btn sec" style="flex:1;padding:9px;font-size:13px" onclick="event.stopPropagation();confirmCall('${id}','${s.id}')">🤖 AI звонок</button>`:''}
-              <button class="btn ghost" style="flex:none;margin:0;padding:9px 12px;font-size:13px" data-del="${s.id}" onclick="event.stopPropagation()">🗑</button>
-            </div>
-          </div>`:''}
-        </div>`;}).join('')}
-      <div style="height:80px"></div>
-      <div class="crmbar">
-        ${lastReply?`<div class="crm-reply">🤖 ${lastReply}</div>`:''}
-        <div class="row" style="gap:8px">
-          <button class="chatmic" id="crmmic" onclick="toggleDictation('crmin','crmmic',null)" title="Диктовать">🎤</button>
-          <textarea id="crmin" rows="1" placeholder="Вставь ссылку, «найди ещё», «до 40», «добавь Название, +48…» · Alt+Enter — новая строка" autocomplete="off"></textarea>
-          <button id="crmsend" style="flex:none;width:46px;border:none;border-radius:12px;background:var(--accent);color:#fff;font-size:18px;cursor:pointer;align-self:flex-end">▶</button>
-        </div>
-      </div>`;
-    // expand toggle
-    v.querySelectorAll('[data-exp]').forEach(el=>el.onclick=()=>{
-      const sid=el.dataset.exp; expanded.has(sid)?expanded.delete(sid):expanded.add(sid); draw();
-    });
-    v.querySelectorAll('[data-del]').forEach(btn=>btn.onclick=e=>{
-      e.stopPropagation();
-      const sup=t.suppliers.find(x=>x.id===btn.dataset.del);
-      if(!confirm(`Удалить «${sup?.name}»?`)) return;
-      t.suppliers=t.suppliers.filter(x=>x.id!==btn.dataset.del);
-      if(t.report) t.report=buildReport(t); saveState(); draw();
-    });
-    const inp=document.getElementById('crmin');
-    const grow=el=>{ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; };
-    inp.oninput=e=>{ inputVal=e.target.value; grow(inp); };
-    inp.onkeydown=e=>{ if(e.key==='Enter'&&!e.altKey&&!e.shiftKey){ e.preventDefault(); submit(); } };
-    document.getElementById('crmsend').onclick=submit;
-  }
-  // reuse the CRM submit logic (same as renderCRM)
-  async function submit(){
-    if(busy) return;
-    const inp=document.getElementById('crmin');
-    const text=((inp&&inp.value)||inputVal||'').trim(); if(!text) return;
-    if(inp) inp.value=''; inputVal='';
-    t.chat=t.chat||[]; t.chat.push({role:'me',text});
-    busy=true;
-    const urlM=text.match(/(https?:\/\/[^\s]+)/i);
-    if(urlM){
-      const url=urlM[1].replace(/[.,;)]+$/,'');
-      lastReply='⏳ Открываю страницу…'; draw();
-      try{ const sup=await fetchSupplierFromUrl(url); t.suppliers.unshift(sup); lastReply=`Добавила: «${sup.name}»`; } catch(e){ lastReply=`Ошибка: ${e.message}`; }
-      busy=false; if(t.report) t.report=buildReport(t); saveState(); draw(); return;
-    }
-    if(/^\s*(найди|поищи|ищи|ещё|search|find)/i.test(text)){
-      if(!state.settings.openaiKey){ lastReply='Добавь ключ OpenAI в настройках.'; busy=false; draw(); return; }
-      const extra=text.replace(/^\s*(найди|поищи|ищи|ещё|search|find)\s*/i,'').trim();
-      const briefOrig=t.brief||t.title; if(extra) t.brief=briefOrig+'\n'+extra;
-      lastReply='🔍 Ищу…'; draw();
-      try{ const ns=await openaiResearch(t); t.brief=briefOrig; const b=t.suppliers.length; t.suppliers=dedupeSuppliers([...t.suppliers,...ns]); lastReply=`Нашла ${t.suppliers.length-b} новых. Всего: ${t.suppliers.length}.`; if(t.report) t.report=buildReport(t); }
-      catch(e){ t.brief=briefOrig; lastReply=`Ошибка: ${e.message}`; }
-      busy=false; saveState(); draw(); return;
-    }
-    const hasPhones=text.match(/\+?\d[\d\s\-]{7,}\d/g)||[];
-    if((text.includes('\n')||text.length>120||hasPhones.length>=1)&&state.settings.openaiKey){
-      lastReply='📋 Извлекаю контакты…'; draw();
-      try{ const ex=await extractContactsFromText(text); if(ex.length){ const b=t.suppliers.length; t.suppliers=dedupeSuppliers([...ex,...t.suppliers]); lastReply=`Извлекла ${t.suppliers.length-b} контакт(а).`; if(t.report) t.report=buildReport(t); } else { lastReply='Контактов не нашла.'; } }
-      catch(e){ lastReply=`Ошибка: ${e.message}`; }
-      busy=false; saveState(); draw(); return;
-    }
-    busy=false; lastReply=applyRefine(t,text)||'';
-    if(t.report) t.report=buildReport(t); saveState(); draw();
-  }
-  draw();
+      <div style="margin-top:8px;font-size:14px;line-height:1.5">${t.report.summary}</div>
+      ${neg.length?`<div style="margin-top:10px;font-size:13px;color:var(--good);font-weight:600">🤝 Как торговаться:</div>
+        <ul style="margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7;color:var(--txt)">${neg.map(h=>`<li>${h}</li>`).join('')}</ul>`:''}
+    </div>`:`<button class="btn ghost" style="margin-bottom:12px" onclick="refreshReport('${id}')">💡 Сгенерировать анализ</button>`}
+    <div class="row" style="justify-content:flex-end;margin-bottom:8px">
+      <button class="btn ghost" style="margin:0;padding:6px 12px;width:auto;font-size:13px" onclick="go('script/${id}')">📝 Скрипт звонка</button>
+    </div>`;
 }
+
 function statusLabel(st){return {draft:'Черновик',researching:'Идёт ресёрч',researched:'Ресёрч завершён',reported:'Отчёт готов',calling:'Идёт обзвон',done:'Готово'}[st]||'';}
 
 function renderResearch(id){
@@ -782,18 +728,22 @@ function retryResearch(id){
   renderResearch(id);
 }
 
-function renderCRM(id){
+function renderCRM(id, taskMode){
   const t = findTask(id);
   if(!t){ go('home'); return; }
   const otherTasks = state.tasks.filter(x=>x.id!==id&&x.suppliers?.length);
-  setHeader(
-    otherTasks.length
-      ? `<select style="background:none;border:none;font:inherit;font-size:17px;font-weight:650;color:var(--txt);max-width:220px;cursor:pointer" onchange="go('contacts');setTimeout(()=>renderCRM(this.value),0)">
-          <option value="${id}" selected>${t.title}</option>
-          ${otherTasks.map(x=>`<option value="${x.id}">${x.title}</option>`).join('')}
-        </select>`
-      : t.title,
-    `${t.suppliers.length} поставщиков`, null);
+  if(taskMode){
+    setHeader(t.title||'Задача', statusLabel(t.status), 'home');
+  } else {
+    setHeader(
+      otherTasks.length
+        ? `<select style="background:none;border:none;font:inherit;font-size:17px;font-weight:650;color:var(--txt);max-width:220px;cursor:pointer" onchange="go('contacts');setTimeout(()=>renderCRM(this.value),0)">
+            <option value="${id}" selected>${t.title}</option>
+            ${otherTasks.map(x=>`<option value="${x.id}">${x.title}</option>`).join('')}
+          </select>`
+        : t.title,
+      `${t.suppliers.length} поставщиков`, null);
+  }
   const v = document.getElementById('view');
   t.filters = t.filters || {};
   const expanded = new Set();
@@ -865,6 +815,7 @@ function renderCRM(id){
   function draw(){
     const list = apply(t.suppliers).sort((a,b)=>cmp[sort](a,b)*dir);
     v.innerHTML = `
+      ${taskMode?taskTopHtml(t):''}
       <div class="row sb" style="margin-bottom:10px">
         <span class="muted" style="font-size:13px">${list.length} из ${t.suppliers.length} · ${state.settings.city}</span>
         <button class="btn ghost" style="margin:0;width:auto;padding:8px 14px" onclick="go('chat/${id}')">💬 Добавить</button>
@@ -1152,8 +1103,8 @@ async function refreshReport(id){
   saveState();
   // re-render whatever screen is currently showing the task
   const h=parseHash();
-  if(h.name==='crm') renderCRM(id);
-  else renderTaskFull(findTask(id));
+  if(h.name==='task') renderCRM(id, true);
+  else renderCRM(id);
 }
 
 /* ---------- chat: feedback & refine search (mock; real LLM in M2) ---------- */
