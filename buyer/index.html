@@ -638,7 +638,7 @@ function renderTaskFull(t){
             ${s.why?`<div style="margin-bottom:6px">${s.why}</div>`:''}
             ${s.sourceUrl?`<a href="${s.sourceUrl}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px">🔗 источник</a>`:''}
             <div class="row" style="gap:6px;margin-top:10px">
-              ${ph?`<a class="btn sec" href="tel:${ph}" style="flex:1;text-align:center;padding:9px;text-decoration:none;font-size:13px">📞 ${s.phone}</a>`:''}
+              ${ph?`<button class="btn sec" style="flex:1;padding:9px;font-size:13px" onclick="event.stopPropagation();confirmCall('${id}','${s.id}')">🤖 AI звонок</button>`:''}
               <button class="btn ghost" style="flex:none;margin:0;padding:9px 12px;font-size:13px" data-del="${s.id}" onclick="event.stopPropagation()">🗑</button>
             </div>
           </div>`:''}
