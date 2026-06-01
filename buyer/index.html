@@ -628,6 +628,7 @@ function renderCRM(id){
         ${s.distanceKm!=null?`<div style="margin-top:4px">📍 ~${s.distanceKm} км от ${state.settings.city}</div>`:''}
         ${s.notes?`<div style="margin-top:4px">📝 ${s.notes}</div>`:''}
         <div style="margin-top:4px">🔗 ${src?`<a href="${src}" target="_blank" rel="noopener">источник: ${(s.source||src).replace(/^https?:\/\//,'')}</a>`:'источник не указан'}</div>
+        <button class="btn sec" data-del="${s.id}" style="margin-top:10px;width:auto;padding:8px 14px;color:var(--bad)">🗑 Удалить</button>
       </td></tr>`;
     }
     return `<tr class="${i===0?'row1':''}" data-exp="${s.id}">${cells}</tr>${detail}`;
@@ -646,7 +647,7 @@ function renderCRM(id){
             sort===k?` <span class="ar">${dir>0?'▲':'▼'}</span>`:''}</th>`).join('')}</tr></thead>
         <tbody>${list.map((s,i)=>rowFor(s,i)).join('')}</tbody>
       </table></div></div>
-      <div class="demo-note">Нажми на строку — почему контакт добавлен и источник · заголовок — сортировка</div>
+      <div class="demo-note">Нажми на строку — обоснование, источник и кнопка удаления · заголовок — сортировка</div>
       <button class="btn ghost" onclick="go('report/${id}')">📊 К отчёту</button>
       <div style="height:96px"></div>
       <div class="crmbar">
@@ -667,6 +668,15 @@ function renderCRM(id){
       const sid=tr.dataset.exp; expanded.has(sid)?expanded.delete(sid):expanded.add(sid); draw();
     });
     v.querySelectorAll('[data-clr]').forEach(el=>el.onclick=()=>{ delete t.filters[el.dataset.clr]; saveState(); draw(); });
+    v.querySelectorAll('[data-del]').forEach(btn=>btn.onclick=e=>{
+      e.stopPropagation();
+      const sid=btn.dataset.del; const sup=t.suppliers.find(x=>x.id===sid);
+      if(!confirm(`Удалить «${sup?sup.name:''}» из CRM?`)) return;
+      t.suppliers=t.suppliers.filter(x=>x.id!==sid);
+      expanded.delete(sid);
+      if(t.report) t.report=buildReport(t);
+      saveState(); draw();
+    });
     const inp=document.getElementById('crmin');
     inp.value=inputVal;
     inp.oninput=e=>{ inputVal=e.target.value; };
