@@ -232,10 +232,58 @@ function buildReport(t){
   const cur=t.suppliers[0]?.currency||'';
   const range=prices.length? `Разброс цен ${Math.min(...prices)}–${Math.max(...prices)} ${cur}. ` : 'У части поставщиков цену уточняем звонком. ';
   const best=top[0];
+  const prevSummary=t.report?.summary||'';
   return {
-    summary:`Проверила ${t.suppliers.length} поставщиков в регионе, из них ${inStockN} с товаром в наличии. ${range}Лучший баланс цены, наличия и рейтинга — «${best?.name||'—'}»${best&&best.price!=null?` (${best.price} ${cur})`:''}. Ниже — топ-3; полный список и фильтры в CRM.`,
-    ranking: top.map(s=>s.id)
+    summary: prevSummary && t.report?._ai
+      ? prevSummary  // keep AI summary if already generated
+      : `Проверила ${t.suppliers.length} поставщиков в регионе, из них ${inStockN} с товаром в наличии. ${range}Лучший баланс цены, наличия и рейтинга — «${best?.name||'—'}»${best&&best.price!=null?` (${best.price} ${cur})`:''}. Ниже — топ-3; полный список и фильтры в CRM.`,
+    ranking: ranked.slice(0,5).map(s=>s.id),
+    _ai: t.report?._ai||false,
+    negotiate: t.report?.negotiate||null,
   };
+}
+async function buildAiReport(t){
+  const s=state.settings;
+  if(!s.openaiKey) return buildReport(t);
+  const prices=t.suppliers.map(x=>x.price).filter(p=>p!=null);
+  const supList=t.suppliers.slice(0,20).map(x=>
+    `- ${x.name} | ${x.addr||'?'} | ${x.price!=null?x.price+' '+(x.currency||''):'цена ?'} | ${x.inStock===true?'есть':x.inStock===false?'нет':'уточнить'} | ${x.phone||'—'} | ${x.notes||''}`
+  ).join('\n');
+  const res=await fetch('https://api.openai.com/v1/chat/completions',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.openaiKey},
+    body:JSON.stringify({model:'gpt-4o-mini',max_tokens:600,
+      messages:[{role:'user',content:
+`Ты — ассистент-байер. Задача покупателя: "${t.brief||t.title}"
+Регион: ${s.city}, ${s.country||'Poland'}. Валюта: ${s.currency}.
+
+Вот список поставщиков из CRM (${t.suppliers.length} шт.):
+${supList}
+
+Верни JSON без markdown:
+{
+  "summary": "2-3 фразы по-русски: итог — сколько нашли, ценовой диапазон (${prices.length?Math.min(...prices)+'–'+Math.max(...prices)+' '+s.currency:'цены уточняем'}), кто лучший вариант и почему",
+  "ranking": [список из топ-5 id или названий поставщиков в порядке рекомендации],
+  "negotiate": [
+    "тактический хинт 1 как поторговаться (конкретный, основан на данных CRM)",
+    "хинт 2",
+    "хинт 3"
+  ]
+}`}]
+    })
+  });
+  const d=await res.json();
+  if(!res.ok) return buildReport(t);
+  let obj; try{ obj=JSON.parse(d.choices[0].message.content); } catch{ return buildReport(t); }
+  // map ranking names back to ids
+  const byName=Object.fromEntries(t.suppliers.map(x=>[x.name.toLowerCase().trim(),x.id]));
+  const ranked=[...t.suppliers].sort((a,b)=>supScore(b)-supScore(a));
+  const rankIds=(obj.ranking||[]).map(r=>{
+    const id=byName[String(r).toLowerCase().trim()];
+    return id||r;
+  }).filter(r=>t.suppliers.find(x=>x.id===r)).slice(0,5);
+  if(rankIds.length<3) rankIds.push(...ranked.map(x=>x.id).filter(id=>!rankIds.includes(id)).slice(0,5-rankIds.length));
+  return { summary:obj.summary||buildReport(t).summary, ranking:rankIds, _ai:true, negotiate:obj.negotiate||[] };
 }
 
 /* ---------- REAL research via OpenAI Responses API + web search ---------- */
@@ -342,7 +390,7 @@ state = loadState();    // safe now: all consts above are initialized
 
 /* ---------- router ---------- */
 const routes = {
-  '': renderHome, 'home': renderHome,
+  '': renderContacts, 'contacts': renderContacts, 'home': renderHome,
   'new': renderNew, 'settings': renderSettings,
   'task': renderTask, 'research': renderResearch,
   'crm': renderCRM, 'report': renderReport, 'script': renderScript,
@@ -375,16 +423,71 @@ function setHeader(title, sub, back){
 }
 function renderNav(active){
   const items = [
-    ['home','🏠','Задачи'],
+    ['contacts','📞','Звонки'],
+    ['home','📋','Задачи'],
     ['new','➕','Новая'],
     ['settings','⚙️','Настройки'],
   ];
   document.getElementById('nav').innerHTML = items.map(([r,ic,l])=>
-    `<button class="${active===r||(r==='home'&&active==='')?'on':''}" onclick="go('${r}')">
+    `<button class="${active===r||(r==='contacts'&&active==='')?'on':''}" onclick="go('${r}')">
        <span class="ic">${ic}</span><span>${l}</span></button>`).join('');
 }
 
 /* ---------- screens ---------- */
+function renderContacts(){
+  setHeader('Звонки', `все поставщики · ${state.settings.city}`);
+  const v = document.getElementById('view');
+  // collect all suppliers across all tasks, newest task first
+  const all = [];
+  for(const t of state.tasks){
+    for(const s of (t.suppliers||[])){
+      if(s.phone||s.website) all.push({...s, _taskId:t.id, _taskTitle:t.title});
+    }
+  }
+  if(!all.length){
+    v.innerHTML=`<div class="empty"><div class="ic">📞</div>
+      <div style="margin-top:12px">Поставщиков пока нет</div>
+      <button class="btn" style="margin-top:24px" onclick="go('new')">➕ Новая задача</button></div>`;
+    return;
+  }
+  // search
+  let q='';
+  function draw(){
+    const list = q ? all.filter(s=>
+      (s.name+s.addr+s.phone+s._taskTitle).toLowerCase().includes(q.toLowerCase())) : all;
+    v.innerHTML=`
+      <input id="csearch" placeholder="🔍 Поиск по имени, телефону, задаче…" value="${q}"
+        style="margin-bottom:12px">
+      ${list.length===0?'<div class="empty"><div class="ic">🔍</div><div>Ничего не найдено</div></div>':''}
+      ${list.map(s=>{
+        const ph=s.phone?s.phone.replace(/\s/g,''):'';
+        const priceTxt=s.price!=null?`${s.price} ${s.currency}`:'';
+        const stockDot=s.inStock===true?'#1ba35a':s.inStock===false?'#e23744':'#aaa';
+        return `<div class="card" style="padding:14px">
+          <div class="row sb" style="gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:650;font-size:16px">${s.name}</div>
+              ${s.addr?`<div class="muted" style="font-size:12px;margin-top:2px">📍 ${s.addr}</div>`:''}
+              <div class="muted" style="font-size:11px;margin-top:3px">
+                <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${stockDot};vertical-align:middle;margin-right:4px"></span>
+                ${s._taskTitle}${priceTxt?` · ${priceTxt}`:''}
+              </div>
+            </div>
+            ${ph?`<a href="tel:${ph}" style="flex:none;background:var(--good);color:#fff;border:none;border-radius:50%;width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:22px;text-decoration:none" onclick="event.stopPropagation()">📞</a>`:''}
+          </div>
+          ${ph?`<div style="font-size:14px;color:var(--accent);margin-top:8px">${s.phone}</div>`:''}
+          <div class="row" style="gap:8px;margin-top:10px">
+            ${ph?`<a class="btn sec" href="tel:${ph}" style="flex:1;text-align:center;padding:10px;text-decoration:none;font-size:14px">📞 Позвонить</a>`:''}
+            <button class="btn ghost" style="flex:1;margin:0;padding:10px;font-size:14px" onclick="go('report/${s._taskId}')">→ Отчёт</button>
+          </div>
+        </div>`;}).join('')}
+      <button class="btn ghost" style="margin-top:4px" onclick="go('new')">➕ Новая задача / поиск</button>
+      <div style="height:8px"></div>`;
+    const inp=document.getElementById('csearch');
+    if(inp){ inp.oninput=e=>{ q=e.target.value; draw(); }; }
+  }
+  draw();
+}
 function renderHome(){
   setHeader('Байер', `${state.settings.city}, ${state.settings.country}`);
   const v = document.getElementById('view');
@@ -520,25 +623,135 @@ function findTask(id){ return state.tasks.find(t=>t.id===id); }
 function renderTask(id){
   const t = findTask(id);
   if(!t){ go('home'); return; }
-  setHeader(t.title, statusLabel(t.status), 'home');
-  document.getElementById('view').innerHTML = `
-    <div class="card">
-      <div contenteditable="true" spellcheck="false"
-        style="font-weight:650;font-size:17px;outline:none;margin-bottom:8px"
-        onblur="saveTaskTitle('${t.id}',this.textContent)"
-        onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">${t.title}</div>
-      <div contenteditable="true" spellcheck="false"
-        style="color:var(--muted);font-size:14px;outline:none;line-height:1.5;white-space:pre-wrap"
-        onblur="(function(el){const v=el.textContent.trim();if(v){const t=findTask('${t.id}');if(t){t.brief=v;saveState();}}})(this)">${t.brief}</div>
-    </div>
-    <h2>Дальше</h2>
-    ${t.status==='researching'
-      ? `<button class="btn" onclick="go('research/${t.id}')">Смотреть ресёрч</button>`
-      : `<div class="card tap" onclick="go('crm/${t.id}')">
-           <div class="row sb"><b>📇 CRM поставщиков</b><span class="muted">${t.suppliers.length} →</span></div></div>
-         <div class="card tap" onclick="go('report/${t.id}')">
-           <div class="row sb"><b>📊 Отчёт</b><span class="muted">${t.report?'готов →':'—'}</span></div></div>`}
-  `;
+  setHeader(t.title||'Задача', statusLabel(t.status), 'home');
+  if(t.status==='researching'){ go('research/'+t.id); return; }
+  // Combined task view: brief + report + full supplier list + CRM bar
+  renderTaskFull(t);
+}
+function renderTaskFull(t){
+  const id=t.id;
+  setHeader(t.title||'Задача', statusLabel(t.status), 'home');
+  const v=document.getElementById('view');
+  t.filters=t.filters||{};
+  const expanded=new Set();
+  let inputVal='', busy=false, lastReply='';
+  const hasDist=t.suppliers.some(s=>s.distanceKm!=null);
+  const neg=t.report?.negotiate||[];
+  function draw(){
+    const sup=[...t.suppliers].sort((a,b)=>supScore(b)-supScore(a));
+    v.innerHTML=`
+      <!-- editable brief -->
+      <details style="margin-bottom:12px">
+        <summary style="cursor:pointer;color:var(--muted);font-size:13px">📋 Задача (нажми чтобы редактировать)</summary>
+        <div contenteditable="true" spellcheck="false"
+          style="margin-top:8px;font-size:14px;outline:none;line-height:1.5;white-space:pre-wrap;background:var(--panel2);border-radius:12px;padding:12px"
+          onblur="(function(el){const tt=findTask('${id}');if(tt){tt.brief=el.textContent.trim();saveState();}})(this)">${t.brief||''}</div>
+      </details>
+      <!-- report summary -->
+      ${t.report?`<div class="card" style="margin-bottom:10px">
+        <div class="row sb" style="gap:8px">
+          <div class="row" style="gap:6px"><span>💡</span><b>Анализ</b></div>
+          <button class="btn ghost" style="margin:0;padding:5px 10px;width:auto;font-size:12px" onclick="refreshReport('${id}')">🔄</button>
+        </div>
+        <div style="margin-top:8px;font-size:14px;line-height:1.5">${t.report.summary}</div>
+        ${neg.length?`<div style="margin-top:10px;font-size:13px;color:var(--good);font-weight:600">🤝 Как торговаться:</div>
+          <ul style="margin:6px 0 0;padding-left:18px;font-size:13px;line-height:1.7;color:var(--txt)">${neg.map(h=>`<li>${h}</li>`).join('')}</ul>`:''}
+      </div>`:`<button class="btn ghost" style="margin-bottom:12px" onclick="refreshReport('${id}')">💡 Сгенерировать анализ</button>`}
+      <!-- supplier list -->
+      <div class="row sb" style="margin-bottom:8px">
+        <h2 style="margin:0">Поставщики · ${sup.length}</h2>
+        <div class="row" style="gap:6px">
+          <button class="btn ghost" style="margin:0;padding:6px 10px;width:auto;font-size:12px" onclick="go('crm/${id}')">🗂 CRM</button>
+          <button class="btn ghost" style="margin:0;padding:6px 10px;width:auto;font-size:12px" onclick="go('script/${id}')">📝 Скрипт</button>
+        </div>
+      </div>
+      ${sup.map(s=>{
+        const ph=s.phone?s.phone.replace(/\s/g,''):'';
+        const priceTxt=s.price!=null?`${s.price} ${s.currency}`:'';
+        const stockColor=s.inStock===true?'var(--good)':s.inStock===false?'var(--bad)':'var(--muted)';
+        const open=expanded.has(s.id);
+        return `<div class="card" style="padding:12px;margin-bottom:8px">
+          <div class="row" style="gap:10px;cursor:pointer" data-exp="${s.id}">
+            <span style="width:8px;height:8px;border-radius:50%;background:${stockColor};flex:none;margin-top:6px"></span>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:650">${s.name}</div>
+              ${s.addr?`<div class="muted" style="font-size:12px">📍 ${s.addr}</div>`:''}
+              ${priceTxt?`<div style="font-size:13px;color:var(--accent);font-weight:600">${priceTxt}</div>`:''}
+            </div>
+            ${ph?`<a href="tel:${ph}" onclick="event.stopPropagation()"
+              style="flex:none;width:44px;height:44px;border-radius:50%;background:var(--good);color:#fff;display:flex;align-items:center;justify-content:center;font-size:22px;text-decoration:none">📞</a>`:''}
+          </div>
+          ${open?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line);font-size:13px">
+            ${s.notes?`<div style="margin-bottom:6px;color:var(--muted)">${s.notes}</div>`:''}
+            ${s.why?`<div style="margin-bottom:6px">${s.why}</div>`:''}
+            ${s.sourceUrl?`<a href="${s.sourceUrl}" target="_blank" rel="noopener" style="color:var(--accent);font-size:12px">🔗 источник</a>`:''}
+            <div class="row" style="gap:6px;margin-top:10px">
+              ${ph?`<a class="btn sec" href="tel:${ph}" style="flex:1;text-align:center;padding:9px;text-decoration:none;font-size:13px">📞 ${s.phone}</a>`:''}
+              <button class="btn ghost" style="flex:none;margin:0;padding:9px 12px;font-size:13px" data-del="${s.id}" onclick="event.stopPropagation()">🗑</button>
+            </div>
+          </div>`:''}
+        </div>`;}).join('')}
+      <div style="height:80px"></div>
+      <div class="crmbar">
+        ${lastReply?`<div class="crm-reply">🤖 ${lastReply}</div>`:''}
+        <div class="row" style="gap:8px">
+          <button class="chatmic" id="crmmic" onclick="toggleDictation('crmin','crmmic',null)" title="Диктовать">🎤</button>
+          <textarea id="crmin" rows="1" placeholder="Вставь ссылку, «найди ещё», «до 40», «добавь Название, +48…» · Alt+Enter — новая строка" autocomplete="off"></textarea>
+          <button id="crmsend" style="flex:none;width:46px;border:none;border-radius:12px;background:var(--accent);color:#fff;font-size:18px;cursor:pointer;align-self:flex-end">▶</button>
+        </div>
+      </div>`;
+    // expand toggle
+    v.querySelectorAll('[data-exp]').forEach(el=>el.onclick=()=>{
+      const sid=el.dataset.exp; expanded.has(sid)?expanded.delete(sid):expanded.add(sid); draw();
+    });
+    v.querySelectorAll('[data-del]').forEach(btn=>btn.onclick=e=>{
+      e.stopPropagation();
+      const sup=t.suppliers.find(x=>x.id===btn.dataset.del);
+      if(!confirm(`Удалить «${sup?.name}»?`)) return;
+      t.suppliers=t.suppliers.filter(x=>x.id!==btn.dataset.del);
+      if(t.report) t.report=buildReport(t); saveState(); draw();
+    });
+    const inp=document.getElementById('crmin');
+    const grow=el=>{ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; };
+    inp.oninput=e=>{ inputVal=e.target.value; grow(inp); };
+    inp.onkeydown=e=>{ if(e.key==='Enter'&&!e.altKey&&!e.shiftKey){ e.preventDefault(); submit(); } };
+    document.getElementById('crmsend').onclick=submit;
+  }
+  // reuse the CRM submit logic (same as renderCRM)
+  async function submit(){
+    if(busy) return;
+    const inp=document.getElementById('crmin');
+    const text=((inp&&inp.value)||inputVal||'').trim(); if(!text) return;
+    if(inp) inp.value=''; inputVal='';
+    t.chat=t.chat||[]; t.chat.push({role:'me',text});
+    busy=true;
+    const urlM=text.match(/(https?:\/\/[^\s]+)/i);
+    if(urlM){
+      const url=urlM[1].replace(/[.,;)]+$/,'');
+      lastReply='⏳ Открываю страницу…'; draw();
+      try{ const sup=await fetchSupplierFromUrl(url); t.suppliers.unshift(sup); lastReply=`Добавила: «${sup.name}»`; } catch(e){ lastReply=`Ошибка: ${e.message}`; }
+      busy=false; if(t.report) t.report=buildReport(t); saveState(); draw(); return;
+    }
+    if(/^\s*(найди|поищи|ищи|ещё|search|find)/i.test(text)){
+      if(!state.settings.openaiKey){ lastReply='Добавь ключ OpenAI в настройках.'; busy=false; draw(); return; }
+      const extra=text.replace(/^\s*(найди|поищи|ищи|ещё|search|find)\s*/i,'').trim();
+      const briefOrig=t.brief||t.title; if(extra) t.brief=briefOrig+'\n'+extra;
+      lastReply='🔍 Ищу…'; draw();
+      try{ const ns=await openaiResearch(t); t.brief=briefOrig; const b=t.suppliers.length; t.suppliers=dedupeSuppliers([...t.suppliers,...ns]); lastReply=`Нашла ${t.suppliers.length-b} новых. Всего: ${t.suppliers.length}.`; if(t.report) t.report=buildReport(t); }
+      catch(e){ t.brief=briefOrig; lastReply=`Ошибка: ${e.message}`; }
+      busy=false; saveState(); draw(); return;
+    }
+    const hasPhones=text.match(/\+?\d[\d\s\-]{7,}\d/g)||[];
+    if((text.includes('\n')||text.length>120||hasPhones.length>=1)&&state.settings.openaiKey){
+      lastReply='📋 Извлекаю контакты…'; draw();
+      try{ const ex=await extractContactsFromText(text); if(ex.length){ const b=t.suppliers.length; t.suppliers=dedupeSuppliers([...ex,...t.suppliers]); lastReply=`Извлекла ${t.suppliers.length-b} контакт(а).`; if(t.report) t.report=buildReport(t); } else { lastReply='Контактов не нашла.'; } }
+      catch(e){ lastReply=`Ошибка: ${e.message}`; }
+      busy=false; saveState(); draw(); return;
+    }
+    busy=false; lastReply=applyRefine(t,text)||'';
+    if(t.report) t.report=buildReport(t); saveState(); draw();
+  }
+  draw();
 }
 function statusLabel(st){return {draft:'Черновик',researching:'Идёт ресёрч',researched:'Ресёрч завершён',reported:'Отчёт готов',calling:'Идёт обзвон',done:'Готово'}[st]||'';}
 
@@ -937,29 +1150,47 @@ function renderReport(id){
   setHeader('Отчёт', t.title, 'task/'+id);
   const byId = Object.fromEntries(t.suppliers.map(s=>[s.id,s]));
   const ranked = t.report.ranking.map(sid=>byId[sid]).filter(Boolean);
+  const neg = t.report.negotiate||[];
   document.getElementById('view').innerHTML = `
-    <div class="card"><div class="row" style="gap:8px"><span style="font-size:20px">💡</span>
-      <b>Рекомендация</b></div>
-      <div style="margin-top:10px">${t.report.summary}</div></div>
+    <div class="card"><div class="row sb" style="gap:8px">
+      <div class="row" style="gap:8px"><span style="font-size:20px">💡</span><b>Рекомендация</b></div>
+      <button id="regen-btn" class="btn ghost" style="margin:0;padding:6px 12px;width:auto;font-size:13px" onclick="refreshReport('${id}')">🔄 Обновить</button>
+    </div>
+      <div style="margin-top:10px">${t.report.summary}</div>
+      ${t.report._ai?'<div class="muted" style="font-size:11px;margin-top:6px">AI-сводка</div>':''}</div>
+    ${neg.length?`<div class="card" style="border-color:rgba(27,163,90,.4)">
+      <div class="row" style="gap:8px"><span style="font-size:18px">🤝</span><b>Как поторговаться</b></div>
+      <ul style="margin:10px 0 0;padding-left:20px;font-size:14px;line-height:1.7">${neg.map(h=>`<li>${h}</li>`).join('')}</ul>
+    </div>`:''}
     <h2>Рейтинг поставщиков</h2>
     ${ranked.map((s,i)=>{
       const call=(t.calls||[]).find(c=>c.supplierId===s.id);
+      const stockTxt=s.inStock===true?'в наличии':s.inStock===false?'под заказ':'уточнить';
+      const ratingTxt=s.rating!=null?` · ${stars(s.rating)} ${s.rating}`:'';
+      const priceTxt=s.price!=null?`${s.price} ${s.currency}`:'цена ?';
       return `<div class="card">
         <div class="row" style="gap:12px">
           <div class="rankbadge ${i===0?'g1':''}">${i+1}</div>
           <div style="flex:1"><div style="font-weight:650">${s.name}</div>
-            <div class="muted" style="font-size:13px">${s.inStock?'в наличии':'под заказ'} · ${stars(s.rating)} ${s.rating}</div></div>
-          <div class="price">${s.price} ${s.currency}</div>
+            <div class="muted" style="font-size:13px">${stockTxt}${ratingTxt}</div>
+            ${s.addr?`<div class="muted" style="font-size:12px">📍 ${s.addr}</div>`:''}</div>
+          <div class="price">${priceTxt}</div>
         </div>
-        ${call? `<button class="btn sec" onclick="go('call/${t.id}/${s.id}')">${call.status==='done'?'📄 Транскрипт звонка':'🔴 Вернуться к звонку'}</button>`
-              : `<button class="btn" onclick="confirmCall('${t.id}','${s.id}')">📞 Позвонить (ИИ) · ${s.phone}</button>`}
+        ${s.phone?`<div class="row" style="gap:8px;margin-top:10px">
+          <a class="btn" style="flex:1;text-decoration:none;text-align:center;padding:12px" href="tel:${s.phone.replace(/\s/g,'')}">📞 ${s.phone}</a>
+          ${call?`<button class="btn sec" style="flex:none;width:auto;padding:12px" onclick="go('call/${t.id}/${s.id}')">${call.status==='done'?'📄':'🔴'}</button>`
+                :`<button class="btn sec" style="flex:none;width:auto;padding:12px" title="Позвонить ИИ-ассистентом" onclick="confirmCall('${t.id}','${s.id}')">🤖</button>`}
+        </div>`:`<button class="btn sec" style="margin-top:10px" onclick="go('crm/${t.id}')">Уточнить телефон в CRM</button>`}
       </div>`;}).join('')}
-    <div class="card" style="border-style:dashed">
-      <div class="row" style="gap:8px"><span style="font-size:18px">📞</span><b>Звонок ассистента</b>
-        <span class="tag">прототип</span></div>
-      <div class="muted" style="margin-top:8px;font-size:13px">Звоним <b>по одному с подтверждением</b> — кнопка «Позвонить (ИИ)» у поставщика выше. Ассистент говорит на ${state.settings.callLang.toLowerCase()} языке, представляется как ИИ. Идёт <b>запись транскрипта</b>, можно <b>слушать вживую</b> и <b>перехватить разговор</b>. На M2 — реальная телефония ElevenLabs + Twilio.</div>
-      <button class="btn sec" style="margin-top:12px" onclick="go('script/${t.id}')">📝 Скрипт звонка — что спросит ассистент</button>
-    </div>`;
+    <button class="btn ghost" style="margin-top:4px" onclick="go('script/${t.id}')">📝 Скрипт звонка и вопросы</button>
+    <div style="height:8px"></div>`;
+}
+async function refreshReport(id){
+  const t=findTask(id); if(!t) return;
+  const btn=document.getElementById('regen-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Генерирую…'; }
+  t.report=await buildAiReport(t);
+  saveState(); renderReport(id);
 }
 
 /* ---------- chat: feedback & refine search (mock; real LLM in M2) ---------- */
@@ -1306,67 +1537,135 @@ function extractFromCall(t,call,sup){
 
 /* ---------- call script (questions the AI asks each supplier) ---------- */
 function buildCallScript(t){
+  // Fallback static script — replaced by buildAiCallScript when key available
   const s = state.settings;
   const item = t.title.replace(/…$/,'');
+  const lang = s.callLang||'Польский';
+  const pl = lang==='Польский';
   return {
-    intro: `Здравствуйте! С вами ИИ-ассистент покупателя ${s.buyerName||'(укажите имя в настройках)'}. Ищем для покупки ${item}. Удобно ответить на пару вопросов?`,
-    clarify: `Да, я ИИ-ассистент — помогаю людям сэкономить время на первичном сборе информации перед заказом. Эту информацию мы не нашли онлайн у вас на сайте, поэтому уточняю напрямую. Это займёт буквально минуту, и решение о покупке примет сам покупатель.`,
-    questions: [
-      `Есть ли «${item}» в наличии сейчас? Если да — сколько на складе?`,
-      `Какая цена за единицу и за весь нужный объём?`,
-      `Есть ли скидка при заказе крупной партии?`,
-      `Когда можно забрать или получить? Сроки поставки?`,
-      `Возможна ли доставка в ${s.city}, и сколько она стоит?`,
-      `Какие способы оплаты? Нужна ли предоплата?`,
-      `Есть ли альтернативы/аналоги, если этой позиции нет?`,
+    _lang: lang,
+    intro: pl
+      ? `Dzień dobry! Jestem asystentem AI kupującego ${s.buyerName||''}. Szukamy ${item}. Czy mogę zadać kilka pytań?`
+      : `Hello! I am an AI assistant for buyer ${s.buyerName||''}. We are looking for ${item}. May I ask a few questions?`,
+    clarify: pl
+      ? `Tak, jestem asystentem AI — pomagam ludziom zaoszczędzić czas na zbieraniu informacji przed zakupem. Decyzja o zakupie należy do samego kupującego.`
+      : `Yes, I am an AI assistant — I help buyers save time gathering information. The purchase decision is made by the buyer.`,
+    questions: pl ? [
+      `Czy mają Państwo «${item}» na stanie? Jeśli tak — ile sztuk?`,
+      `Jaka jest cena za sztukę i za całą potrzebną ilość?`,
+      `Czy jest rabat przy większym zamówieniu?`,
+      `Kiedy można odebrać lub kiedy jest dostawa?`,
+      `Czy możliwa jest dostawa do ${s.city}, i ile kosztuje?`,
+      `Jakie są metody płatności? Czy wymagana jest zaliczka?`,
+      `Czy są alternatywy lub zamienniki, jeśli tej pozycji nie ma?`,
+    ] : [
+      `Is «${item}» in stock? If yes, how many units?`,
+      `What is the price per unit and for the full quantity needed?`,
+      `Is there a bulk discount?`,
+      `When can it be picked up or delivered?`,
+      `Is delivery to ${s.city} possible, and at what cost?`,
+      `What payment methods are accepted? Is a deposit required?`,
+      `Are there alternatives if this item is unavailable?`,
     ],
-    closing: `Спасибо большое! Я передам информацию покупателю, и при необходимости мы свяжемся для заказа. Хорошего дня!`,
+    closing: pl
+      ? `Dziękuję bardzo! Przekażę informacje kupującemu i w razie potrzeby skontaktujemy się w sprawie zamówienia. Miłego dnia!`
+      : `Thank you! I will pass this information to the buyer. Have a great day!`,
+    negotiate: pl ? [
+      `Mamy oferty od kilku dostawców — czy cena jest do negocjacji?`,
+      `Przy płatności gotówką — czy jest możliwy rabat?`,
+    ] : [],
   };
+}
+async function buildAiCallScript(t){
+  const s=state.settings;
+  if(!s.openaiKey) return buildCallScript(t);
+  const lang=s.callLang||'Польский';
+  const prices=t.suppliers.map(x=>x.price).filter(Boolean);
+  const priceRange=prices.length?`${Math.min(...prices)}–${Math.max(...prices)} ${s.currency}`:'неизвестна';
+  const res=await fetch('https://api.openai.com/v1/chat/completions',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+s.openaiKey},
+    body:JSON.stringify({model:'gpt-4o-mini',max_tokens:700,
+      messages:[{role:'user',content:
+`Ты — помощник байера. Напиши скрипт звонка поставщику на языке: ${lang}.
+Задача покупателя: "${t.brief||t.title}"
+Покупатель: ${s.buyerName||'покупатель'}, регион: ${s.city}.
+Конкурентная цена на рынке: ${priceRange}.
+
+Верни JSON без markdown:
+{
+  "intro": "приветствие на языке ${lang}, раскрытие что это ИИ-ассистент (EU AI Act), цель звонка",
+  "clarify": "объяснение если продавец растерян — что такое ИИ-ассистент и зачем звонит (на языке ${lang})",
+  "questions": ["вопрос 1 на языке ${lang}", "вопрос 2", ...7-9 конкретных вопросов по задаче],
+  "negotiate": ["тактика торга 1 на языке ${lang} — конкретная фраза которую скажет ИИ", "тактика 2", "тактика 3"],
+  "closing": "прощание на языке ${lang}"
+}`}]
+    })
+  });
+  const d=await res.json();
+  if(!res.ok) return buildCallScript(t);
+  try{
+    const obj=JSON.parse(d.choices[0].message.content);
+    return {...obj, _lang:lang, _ai:true};
+  } catch{ return buildCallScript(t); }
 }
 function scriptToText(sc){
   return [sc.intro, '', ...sc.questions.map((q,i)=>`${i+1}. ${q}`), '', sc.closing].join('\n');
 }
-function renderScript(id){
+async function renderScript(id){
   const t = findTask(id);
   if(!t){ go('home'); return; }
   const s = state.settings;
-  const sc = t.callScript || buildCallScript(t);
   setHeader('Скрипт звонка', t.title, 'report/'+id);
-  document.getElementById('view').innerHTML = `
+  const v=document.getElementById('view');
+  if(!t.callScript){
+    v.innerHTML=`<div class="empty"><div class="ic">⏳</div><div>Генерирую скрипт на ${s.callLang.toLowerCase()}…</div></div>`;
+    t.callScript = await buildAiCallScript(t);
+    saveState();
+  }
+  const sc = t.callScript;
+  const neg=(sc.negotiate||[]);
+  v.innerHTML = `
     <div class="card" style="border-color:rgba(245,166,35,.4)">
-      <div class="row" style="gap:8px"><span style="font-size:18px">🗣</span><b>Как это работает</b></div>
-      <div class="muted" style="margin-top:8px;font-size:13px">
-        Ассистент произносит это <b>на ${s.callLang.toLowerCase()} языке</b> (ты пишешь на ${s.assistantLang.toLowerCase()}, перевод — на стороне агента).
-        Первая фраза — раскрытие, что звонит ИИ (требование EU AI Act). Звонок идёт <b>по подтверждению</b>, по одному поставщику.
+      <div class="row sb" style="gap:8px">
+        <div class="row" style="gap:8px"><span style="font-size:18px">🗣</span>
+          <b>Язык: ${sc._lang||s.callLang}</b>${sc._ai?'<span class="tag" style="margin-left:6px">AI</span>':''}</div>
+        <button class="btn ghost" style="margin:0;padding:6px 12px;width:auto;font-size:13px" onclick="resetScript('${id}')">🔄</button>
       </div>
+      <div class="muted" style="margin-top:6px;font-size:13px">Первая фраза раскрывает что звонит ИИ (EU AI Act). Звонок по одному поставщику с подтверждением.</div>
     </div>
 
     <label>Приветствие (раскрытие ИИ)</label>
-    <textarea id="sc-intro" style="min-height:90px">${sc.intro}</textarea>
+    <textarea id="sc-intro" style="min-height:90px">${sc.intro||''}</textarea>
 
-    <label>Если продавец растерян (объяснение, зачем звонит ИИ)</label>
-    <textarea id="sc-clar" style="min-height:90px">${sc.clarify||''}</textarea>
+    <label>Если продавец растерян</label>
+    <textarea id="sc-clar" style="min-height:80px">${sc.clarify||''}</textarea>
 
     <label>Вопросы поставщику (по одному на строку)</label>
-    <textarea id="sc-q" style="min-height:200px">${sc.questions.join('\n')}</textarea>
+    <textarea id="sc-q" style="min-height:200px">${(sc.questions||[]).join('\n')}</textarea>
+
+    ${neg.length?`<label>Фразы для торга</label>
+    <textarea id="sc-neg" style="min-height:100px">${neg.join('\n')}</textarea>`:''}
 
     <label>Завершение</label>
-    <textarea id="sc-out" style="min-height:80px">${sc.closing}</textarea>
+    <textarea id="sc-out" style="min-height:80px">${sc.closing||''}</textarea>
 
     <button class="btn" onclick="saveScript('${id}')">Сохранить скрипт</button>
-    <button class="btn ghost" onclick="resetScript('${id}')">Сбросить к авто-варианту</button>
-    <div class="demo-note">В фазе 2 этот текст передаётся агенту ElevenLabs как инструкция и dynamic variables.</div>`;
+    <div class="demo-note">В фазе 2 этот текст передаётся агенту ElevenLabs как инструкция.</div>`;
 }
 function saveScript(id){
   const t = findTask(id); if(!t) return;
+  const negEl=document.getElementById('sc-neg');
   t.callScript = {
+    ...t.callScript,
     intro: val('sc-intro'),
     clarify: val('sc-clar'),
     questions: document.getElementById('sc-q').value.split('\n').map(x=>x.trim()).filter(Boolean),
+    negotiate: negEl?negEl.value.split('\n').map(x=>x.trim()).filter(Boolean):[],
     closing: val('sc-out'),
   };
   saveState();
-  go('report/'+id);
+  go('task/'+id);
 }
 function resetScript(id){
   const t = findTask(id); if(!t) return;
