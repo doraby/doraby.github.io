@@ -128,6 +128,9 @@
     margin:0 auto;display:flex;gap:8px;padding:10px 14px;background:rgba(255,255,255,.96);
     backdrop-filter:blur(10px);border-top:1px solid var(--line)}
   .chatbar input{flex:1}
+  .chatmic{flex:none;width:46px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);
+    color:var(--txt);font-size:18px;cursor:pointer}
+  .chatmic.rec{background:var(--bad);color:#fff;border-color:var(--bad);animation:pulse 1.2s infinite}
   .chatbar button{flex:none;width:46px;border:none;border-radius:12px;background:var(--accent);color:#fff;
     font-size:18px;cursor:pointer}
   /* live call */
@@ -401,24 +404,26 @@ function renderNew(){
 /* ---------- voice dictation via Web Speech API ---------- */
 const SPEECH_LANG = {'Русский':'ru-RU','Английский':'en-US','Польский':'pl-PL','Украинский':'uk-UA','Немецкий':'de-DE','Испанский':'es-ES'};
 let recog=null, recBase='';
-function toggleDictation(){
+function toggleDictation(targetId='brief', btnId='micbtn', noteId='micnote'){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const note=document.getElementById('micnote'); const btn=document.getElementById('micbtn');
-  if(!SR){ note.textContent='⚠️ Голосовой ввод не поддерживается этим браузером. Лучше всего работает в Chrome или Safari.'; return; }
+  const btn=document.getElementById(btnId);
+  const note=noteId?document.getElementById(noteId):null;
+  const setNote=t=>{ if(note) note.textContent=t; };
+  if(!SR){ setNote('⚠️ Голосовой ввод не поддерживается этим браузером. Лучше всего работает в Chrome или Safari.'); return; }
   if(recog){ recog.stop(); return; }   // toggle off
-  const ta=document.getElementById('brief');
-  recBase = ta.value.trim();
+  const ta=document.getElementById(targetId);
+  recBase = (ta.value||'').trim();
   recog = new SR();
   recog.lang = SPEECH_LANG[state.settings.assistantLang] || 'ru-RU';
   recog.continuous = true; recog.interimResults = true;
-  recog.onstart = ()=>{ btn.classList.add('rec'); note.textContent='🔴 Слушаю… говори, потом нажми микрофон ещё раз, чтобы остановить.'; };
-  recog.onerror = e=>{ note.textContent = e.error==='not-allowed' ? '⚠️ Нет доступа к микрофону — разреши его в браузере.' : '⚠️ Ошибка распознавания: '+e.error; };
+  recog.onstart = ()=>{ if(btn) btn.classList.add('rec'); setNote('🔴 Слушаю… нажми микрофон ещё раз, чтобы остановить.'); };
+  recog.onerror = e=>{ setNote(e.error==='not-allowed' ? '⚠️ Нет доступа к микрофону — разреши его в браузере.' : '⚠️ Ошибка распознавания: '+e.error); };
   recog.onresult = e=>{
     let txt='';
     for(let i=0;i<e.results.length;i++) txt += e.results[i][0].transcript;
     ta.value = (recBase ? recBase+' ' : '') + txt;
   };
-  recog.onend = ()=>{ if(btn) btn.classList.remove('rec'); if(note) note.textContent='✓ Готово. Можно отредактировать текст или запустить ресёрч.'; recog=null; };
+  recog.onend = ()=>{ if(btn) btn.classList.remove('rec'); setNote('✓ Готово.'); recog=null; };
   recog.start();
 }
 function createTask(){
@@ -648,6 +653,7 @@ function renderChat(id){
       <div id="chatlog">${t.chat.map(m=>
         `<div class="bubble ${m.role}">${m.text}</div>`).join('')}</div>
       <div class="chatbar">
+        <button id="chatmic" class="chatmic" onclick="toggleDictation('chatin','chatmic',null)" title="Диктовать голосом">🎤</button>
         <input id="chatin" placeholder="Например: только в наличии, до 40 PLN…" autocomplete="off">
         <button onclick="sendChat('${id}')">▶</button>
       </div>`;
