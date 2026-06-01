@@ -648,7 +648,7 @@ function renderCRM(id){
         ${lastReply?`<div class="crm-reply">🤖 ${lastReply}</div>`:''}
         <div class="row" style="gap:8px">
           <button class="chatmic" id="crmmic" onclick="toggleDictation('crmin','crmmic',null)" title="Диктовать">🎤</button>
-          <input id="crmin" placeholder="«до 40», «не дальше 20 км» или «добавь Название, +48…»" autocomplete="off">
+          <input id="crmin" placeholder="Вставь ссылку, «до 40», «в наличии», «добавь Название, +48…»" autocomplete="off">
           <button id="crmsend" style="flex:none;width:46px;border:none;border-radius:12px;background:var(--accent);color:#fff;font-size:18px;cursor:pointer">▶</button>
         </div>
       </div>`;
@@ -667,14 +667,40 @@ function renderCRM(id){
     inp.oninput=e=>{ inputVal=e.target.value; };
     inp.onkeydown=e=>{ if(e.key==='Enter') submit(); };
     document.getElementById('crmsend').onclick=submit;
+    setTimeout(()=>{ const i=document.getElementById('crmin'); if(i&&!lastReply) i.focus(); },50);
   }
-  function submit(){
-    const text=(inputVal||'').trim(); if(!text) return;
-    t.chat=t.chat||[]; t.chat.push({role:'me',text});
+  async function submit(){
+    const inp=document.getElementById('crmin');
+    const text=((inp&&inp.value)||inputVal||'').trim(); if(!text) return;
+    if(inp) inp.value=''; inputVal='';
+    t.chat=t.chat||[];
+    t.chat.push({role:'me',text});
+    // URL → fetch and parse page into CRM contact
+    const urlM=text.match(/^(https?:\/\/\S+)/i);
+    if(urlM){
+      const url=urlM[1];
+      lastReply='⏳ Загружаю страницу…';
+      t.chat.push({role:'ai',text:lastReply});
+      saveState(); draw();
+      try{
+        const sup=await fetchSupplierFromUrl(url);
+        t.suppliers.unshift(sup);
+        t.chat.pop();
+        lastReply=`Добавила: «${sup.name}»${sup.price!=null?` · ${sup.price} ${sup.currency}`:''}${sup.phone?` · ${sup.phone}`:''}. Всего ${t.suppliers.length}.`;
+        t.chat.push({role:'ai',text:lastReply});
+      } catch(e){
+        t.chat.pop();
+        lastReply=`Не удалось загрузить страницу: ${e.message||e}`;
+        t.chat.push({role:'ai',text:lastReply});
+      }
+      if(t.report) t.report=buildReport(t);
+      saveState(); draw();
+      return;
+    }
     lastReply=applyRefine(t,text);
-    t.chat.push({role:'ai',text:lastReply});
+    if(lastReply) t.chat.push({role:'ai',text:lastReply});
     if(t.report) t.report=buildReport(t);
-    inputVal=''; saveState(); draw();
+    saveState(); draw();
   }
   draw();
 }
@@ -731,7 +757,7 @@ function renderChat(id){
   if(!t){ go('home'); return; }
   t.chat = t.chat || [];
   if(!t.chat.length){
-    t.chat.push({role:'ai', text:`Нашла ${t.suppliers.length} поставщиков по «${t.title}». Команды: «только в наличии», «до 40», «рейтинг от 4.3», «не дальше 20 км», «сбросить». Чтобы добавить контакт вручную — «добавь Название, +48 12 345 67 89, сайт.pl».`});
+    t.chat.push({role:'ai', text:`Нашла ${t.suppliers.length} поставщиков по «${t.title}». Фильтры: «только в наличии», «до 40», «рейтинг от 4.3», «не дальше 20 км», «сбросить». Добавить контакт: вставь ссылку (OLX, сайт) или «добавь Название, +48 12 345 67 89, сайт.pl».`});
   }
   setHeader('Уточнение поиска', t.title, 'crm/'+id);
   const v = document.getElementById('view');
@@ -764,6 +790,46 @@ function sendChat(id){
   saveState();
   renderChat._draw && renderChat._draw();
 }
+async function fetchSupplierFromUrl(url){
+  const proxy=`https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+  const r=await fetch(proxy);
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const d=await r.json();
+  const html=d.contents||'';
+  const tmp=document.createElement('div'); tmp.innerHTML=html;
+  const text=(tmp.textContent||'').replace(/\s+/g,' ').trim().slice(0,5000);
+  const titleM=html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  const pageTitle=(titleM?titleM[1].trim():'').replace(/\s*[-|·].*$/,'').trim();
+  const domain=new URL(url).hostname.replace(/^www\./,'');
+  let info={name:pageTitle||domain,phone:'',address:'',price:null,
+    currency:state.settings.currency,inStock:null,description:''};
+  if(state.settings.openaiKey){
+    try{
+      const res=await fetch('https://api.openai.com/v1/chat/completions',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.openaiKey},
+        body:JSON.stringify({model:'gpt-4o-mini',max_tokens:350,
+          response_format:{type:'json_object'},
+          messages:[{role:'user',content:`Extract seller info from this listing page. Return JSON: {"name":"","phone":"","address":"","price":null,"currency":null,"inStock":null,"description":""}\n\nURL: ${url}\nTitle: ${pageTitle}\nContent: ${text}`}]})
+      });
+      const jd=await res.json();
+      if(res.ok) info={...info,...JSON.parse(jd.choices[0].message.content)};
+    } catch(e){}
+  } else {
+    const phM=text.match(/(\+?48[\s\-]?\d{3}[\s\-]?\d{3}[\s\-]?\d{3}|\d{3}[\s\-]?\d{3}[\s\-]?\d{3})/);
+    if(phM) info.phone=phM[1];
+    const prM=text.match(/(\d[\d\s,.]+)\s*(PLN|zł|EUR|€|USD|\$)/i);
+    if(prM){ info.price=parseFloat(prM[1].replace(/\s/g,'').replace(',','.')); info.currency=prM[2].replace('zł','PLN'); }
+    const inStockM=/dostępn|w stock|в наличии|jest|есть/i.test(text);
+    if(inStockM) info.inStock=true;
+  }
+  return{id:'s'+Date.now(),name:info.name||domain,phone:info.phone||'',
+    addr:info.address||'',website:domain,
+    price:typeof info.price==='number'?info.price:null,
+    currency:info.currency||state.settings.currency,
+    inStock:info.inStock??null,rating:null,reviews:0,distanceKm:null,
+    why:`Добавлено по ссылке`,notes:info.description||'',sourceUrl:url,source:domain};
+}
 function applyRefine(t, text){
   t.filters=t.filters||{};
   // --- ADD a contact to CRM: "добавь <название> <телефон> <сайт>" ---
@@ -790,9 +856,7 @@ function applyRefine(t, text){
   const mDist=q.match(/(?:в радиусе|ближе|до|не дальше|в пределах)\D{0,6}(\d+)\s*км/);
   if(mDist){ const v=parseFloat(mDist[1]); t.filters.maxDist=v; acts.push(`не дальше ${v} км`); }
   if(/сброс|очист|сними фильтр/.test(q)){ t.filters={}; acts.length=0; acts.push('сбросила все фильтры'); }
-  if(!acts.length){
-    return `Чтобы ДОБАВИТЬ контакт — напиши «добавь Название, +48..., сайт.pl». Чтобы отфильтровать — «только в наличии», «до 40», «рейтинг от 4.3», «не дальше 20 км», «сбросить».`;
-  }
+  if(!acts.length){ return ''; }
   const count=t.suppliers.filter(s=>
     (!t.filters.inStock||s.inStock) &&
     (t.filters.maxPrice==null||(s.price!=null&&s.price<=t.filters.maxPrice)) &&
