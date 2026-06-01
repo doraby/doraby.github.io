@@ -576,7 +576,7 @@ function renderCRM(id){
   const v = document.getElementById('view');
   t.filters = t.filters || {};
   const expanded = new Set();
-  let lastReply='', inputVal='', busy=false;
+  let lastReply='', inputVal='', busy=false, mapView=false;
   const hasDist = t.suppliers.some(s=>s.distanceKm!=null);
   let sort = hasDist?'distance':'price', dir = 1;
   const cols = [
@@ -638,16 +638,23 @@ function renderCRM(id){
     v.innerHTML = `
       <div class="row sb" style="margin-bottom:10px">
         <span class="muted" style="font-size:13px">${list.length} из ${t.suppliers.length} · ${state.settings.city}</span>
-        <button class="btn ghost" style="margin:0;width:auto;padding:8px 14px" onclick="go('chat/${id}')">💬 Уточнить / добавить</button>
+        <button class="btn ghost" style="margin:0;width:auto;padding:8px 14px" onclick="go('chat/${id}')">💬 Добавить</button>
+      </div>
+      <div class="seg" style="margin-bottom:10px">
+        <button id="tog-list" class="${!mapView?'on':''}" onclick="crmToggle(false)">📋 Список</button>
+        <button id="tog-map"  class="${mapView?'on':''}"  onclick="crmToggle(true)">🗺 Карта</button>
       </div>
       ${chips()}
-      <div class="tblwrap"><div class="tblscroll"><table class="crm">
+      ${mapView
+        ? `<div id="crmmap" style="height:420px;border-radius:16px;overflow:hidden;margin-bottom:12px;border:1px solid var(--line)"></div>`
+        : `<div class="tblwrap"><div class="tblscroll"><table class="crm">
         <thead><tr>${cols.map(([k,l])=>
           `<th data-k="${k}" class="${sort===k?'sorted':''}">${l}${
             sort===k?` <span class="ar">${dir>0?'▲':'▼'}</span>`:''}</th>`).join('')}</tr></thead>
         <tbody>${list.map((s,i)=>rowFor(s,i)).join('')}</tbody>
       </table></div></div>
-      <div class="demo-note">Нажми на строку — обоснование, источник и кнопка удаления · заголовок — сортировка</div>
+      <div class="demo-note">Нажми на строку — обоснование, источник и кнопка удаления · заголовок — сортировка</div>`
+      }
       <button class="btn ghost" onclick="go('report/${id}')">📊 К отчёту</button>
       <div style="height:96px"></div>
       <div class="crmbar">
@@ -683,7 +690,9 @@ function renderCRM(id){
     inp.onkeydown=e=>{ if(e.key==='Enter') submit(); };
     document.getElementById('crmsend').onclick=submit;
     setTimeout(()=>{ const i=document.getElementById('crmin'); if(i&&!lastReply) i.focus(); },50);
+    if(mapView) initCrmMap(list, t);
   }
+  function crmToggle(toMap){ mapView=toMap; draw(); }
   async function submit(){
     if(busy) return;
     const inp=document.getElementById('crmin');
@@ -774,6 +783,68 @@ function renderCRM(id){
     saveState(); draw();
   }
   draw();
+}
+/* ---------- CRM map (Leaflet + OSM + Nominatim geocoding) ---------- */
+let _leafletReady=null;
+function loadLeaflet(){
+  if(_leafletReady) return _leafletReady;
+  _leafletReady=new Promise(res=>{
+    if(window.L){ res(); return; }
+    const lnk=document.createElement('link');
+    lnk.rel='stylesheet'; lnk.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(lnk);
+    const s=document.createElement('script');
+    s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.onload=res; document.head.appendChild(s);
+  });
+  return _leafletReady;
+}
+let _crmMap=null;
+async function initCrmMap(list, t){
+  await loadLeaflet();
+  const el=document.getElementById('crmmap'); if(!el) return;
+  const city=state.settings.city||'Poland';
+  // geocode city center once
+  if(!t._mapCenter){
+    try{
+      const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1`,{headers:{'Accept-Language':'ru'}});
+      const d=await r.json();
+      if(d[0]) t._mapCenter=[+d[0].lat,+d[0].lon];
+    } catch(e){}
+  }
+  const center=t._mapCenter||[50.06,19.94];
+  if(_crmMap){ _crmMap.remove(); _crmMap=null; }
+  const map=L.map(el).setView(center,10);
+  _crmMap=map;
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    attribution:'© <a href="https://www.openstreetmap.org/copyright">OSM</a>',maxZoom:19}).addTo(map);
+  // star marker for city center
+  L.marker(center,{icon:L.divIcon({className:'',html:'<div style="font-size:22px;line-height:1">📍</div>',iconAnchor:[11,22]})})
+    .addTo(map).bindPopup(`<b>${city}</b>`);
+  // geocode and pin suppliers
+  const bounds=[center];
+  for(const s of list){
+    if(!s._lat&&s.addr){
+      try{
+        await new Promise(r=>setTimeout(r,300)); // Nominatim rate-limit: 1 req/s
+        const q=`${s.addr}, ${city}, Poland`;
+        const r=await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1`,{headers:{'Accept-Language':'ru'}});
+        const d=await r.json();
+        if(d[0]){ s._lat=+d[0].lat; s._lng=+d[0].lon; }
+      } catch(e){}
+    }
+    if(s._lat){
+      bounds.push([s._lat,s._lng]);
+      const color=s.inStock===true?'#1ba35a':s.inStock===false?'#e23744':'#888';
+      const icon=L.divIcon({className:'',iconAnchor:[12,12],html:
+        `<div style="width:24px;height:24px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.3);display:flex;align-items:center;justify-content:center;color:#fff;font-size:10px;font-weight:700">${s.price!=null?'₽':''}</div>`});
+      L.marker([s._lat,s._lng],{icon}).addTo(map).bindPopup(
+        `<b>${s.name}</b>${s.addr?`<br>📍 ${s.addr}`:''}${s.price!=null?`<br>💰 ${s.price} ${s.currency}`:''}${s.phone?`<br>📞 <a href="tel:${s.phone.replace(/\s/g,'')}">${s.phone}</a>`:''}`
+      );
+      if(document.getElementById('crmmap')) map.fitBounds(bounds,{padding:[30,30]});
+    }
+  }
+  saveState();
 }
 function stars(r){ if(r==null) return ''; const n=Math.round(r); return '★'.repeat(n)+'☆'.repeat(Math.max(0,5-n)); }
 function stockCell(v){
