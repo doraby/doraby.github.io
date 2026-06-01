@@ -127,13 +127,13 @@
   .chatbar{position:fixed;bottom:calc(60px + env(safe-area-inset-bottom));left:0;right:0;max-width:560px;
     margin:0 auto;display:flex;gap:8px;padding:10px 14px;background:rgba(255,255,255,.96);
     backdrop-filter:blur(10px);border-top:1px solid var(--line)}
-  .chatbar input{flex:1}
+  .chatbar textarea{flex:1;min-height:40px;max-height:160px;resize:none;overflow-y:auto;padding:10px 12px;line-height:1.4}
   .chatmic{flex:none;width:46px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);
     color:var(--txt);font-size:18px;cursor:pointer}
   .chatmic.rec{background:var(--bad);color:#fff;border-color:var(--bad);animation:pulse 1.2s infinite}
   .crmbar{position:fixed;bottom:calc(60px + env(safe-area-inset-bottom));left:0;right:0;max-width:560px;
     margin:0 auto;padding:10px 14px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-top:1px solid var(--line)}
-  .crmbar input{flex:1}
+  .crmbar textarea{flex:1;min-height:40px;max-height:160px;resize:none;overflow-y:auto;padding:10px 12px;line-height:1.4}
   .crm-reply{font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.35}
   table.crm tr.detail td{background:var(--panel2);font-size:13px;line-height:1.5;white-space:normal;color:var(--txt)}
   table.crm tr[data-exp]{cursor:pointer}
@@ -669,8 +669,8 @@ function renderCRM(id){
         ${lastReply?`<div class="crm-reply">🤖 ${lastReply}</div>`:''}
         <div class="row" style="gap:8px">
           <button class="chatmic" id="crmmic" onclick="toggleDictation('crmin','crmmic',null)" title="Диктовать">🎤</button>
-          <input id="crmin" placeholder="Вставь ссылку, «до 40», «в наличии», «добавь Название, +48…»" autocomplete="off">
-          <button id="crmsend" style="flex:none;width:46px;border:none;border-radius:12px;background:var(--accent);color:#fff;font-size:18px;cursor:pointer">▶</button>
+          <textarea id="crmin" placeholder="Вставь ссылку, «до 40», «в наличии», «добавь Название, +48…» · Alt+Enter — новая строка" rows="1" autocomplete="off"></textarea>
+          <button id="crmsend" style="flex:none;width:46px;border:none;border-radius:12px;background:var(--accent);color:#fff;font-size:18px;cursor:pointer;align-self:flex-end">▶</button>
         </div>
       </div>`;
     v.querySelectorAll('th').forEach(th=>th.onclick=()=>{
@@ -704,8 +704,11 @@ function renderCRM(id){
     });
     const inp=document.getElementById('crmin');
     inp.value=inputVal;
-    inp.oninput=e=>{ inputVal=e.target.value; };
-    inp.onkeydown=e=>{ if(e.key==='Enter') submit(); };
+    const grow=el=>{ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; };
+    inp.oninput=e=>{ inputVal=e.target.value; grow(inp); };
+    inp.onkeydown=e=>{
+      if(e.key==='Enter'&&!e.altKey&&!e.shiftKey){ e.preventDefault(); submit(); }
+    };
     document.getElementById('crmsend').onclick=submit;
     setTimeout(()=>{ const i=document.getElementById('crmin'); if(i&&!lastReply) i.focus(); },50);
     if(mapView) initCrmMap(list, t);
@@ -927,13 +930,17 @@ function renderChat(id){
         `<div class="bubble ${m.role}">${m.text}</div>`).join('')}</div>
       <div class="chatbar">
         <button id="chatmic" class="chatmic" onclick="toggleDictation('chatin','chatmic',null)" title="Диктовать голосом">🎤</button>
-        <input id="chatin" placeholder="«найди ещё», «только в наличии», «до 40 PLN», ссылка…" autocomplete="off">
-        <button onclick="sendChat('${id}')">▶</button>
+        <textarea id="chatin" placeholder="«найди ещё», «только в наличии», «до 40 PLN», ссылка… · Alt+Enter — новая строка" rows="1" autocomplete="off"></textarea>
+        <button onclick="sendChat('${id}')" style="align-self:flex-end">▶</button>
       </div>`;
     const log=document.getElementById('chatlog'); log.scrollTop=log.scrollHeight;
     const inp=document.getElementById('chatin');
     inp.focus();
-    inp.onkeydown=e=>{ if(e.key==='Enter') sendChat(id); };
+    const grow=el=>{ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; };
+    inp.oninput=()=>grow(inp);
+    inp.onkeydown=e=>{
+      if(e.key==='Enter'&&!e.altKey&&!e.shiftKey){ e.preventDefault(); sendChat(id); }
+    };
   }
   renderChat._draw=draw;
   draw();
@@ -943,7 +950,7 @@ async function sendChat(id){
   const inp=document.getElementById('chatin'); const text=inp.value.trim();
   if(!text) return;
   t.chat.push({role:'me', text});
-  inp.value='';
+  inp.value=''; inp.style.height='auto';
   // URL → parse page
   const urlM=text.match(/(https?:\/\/[^\s]+)/i);
   if(urlM){
