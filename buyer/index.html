@@ -393,7 +393,7 @@ const routes = {
   '': renderContacts, 'contacts': renderContacts, 'home': renderHome,
   'new': renderNew, 'settings': renderSettings,
   'task': renderTask, 'research': renderResearch,
-  'crm': renderCRM, 'report': renderReport, 'script': renderScript,
+  'crm': renderCRM, 'report': (id)=>go('task/'+id), 'script': renderScript,
   'chat': renderChat, 'call': renderCall,
 };
 function go(hash){ location.hash = hash; }
@@ -884,7 +884,6 @@ function renderCRM(id){
       </table></div></div>
       <div class="demo-note">Нажми на строку — обоснование, источник и кнопка удаления · заголовок — сортировка</div>`
       }
-      <button class="btn ghost" onclick="go('report/${id}')">📊 К отчёту</button>
       <div style="height:96px"></div>
       <div class="crmbar">
         ${lastReply?`<div class="crm-reply">🤖 ${lastReply}</div>`:''}
@@ -1150,7 +1149,11 @@ async function refreshReport(id){
   const btn=document.getElementById('regen-btn');
   if(btn){ btn.disabled=true; btn.textContent='⏳ Генерирую…'; }
   t.report=await buildAiReport(t);
-  saveState(); renderReport(id);
+  saveState();
+  // re-render whatever screen is currently showing the task
+  const h=parseHash();
+  if(h.name==='crm') renderCRM(id);
+  else renderTaskFull(findTask(id));
 }
 
 /* ---------- chat: feedback & refine search (mock; real LLM in M2) ---------- */
@@ -1427,7 +1430,7 @@ function renderCall(taskId, supId){
   }
   function controls(){
     if(call.status==='done'){
-      return `<button class="btn" onclick="go('report/${taskId}')">Готово · к отчёту</button>`;
+      return `<button class="btn" onclick="go('task/${taskId}')">Готово · к задаче</button>`;
     }
     if(call.takenOver){
       return `<div class="livebar">
