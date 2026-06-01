@@ -413,10 +413,27 @@ function statusTag(st){
   return `<span class="tag ${c}">${l}</span>`;
 }
 function taskCard(t){
-  return `<div class="card tap" onclick="go('task/${t.id}')">
-    <div class="row sb"><div style="font-weight:600">${t.title}</div>${statusTag(t.status)}</div>
+  return `<div class="card" style="cursor:default">
+    <div class="row sb" style="gap:10px">
+      <div style="font-weight:600;flex:1;min-width:0">
+        <span contenteditable="true" spellcheck="false"
+          style="outline:none;display:block;cursor:text;border-radius:6px;padding:2px 4px;margin:-2px -4px"
+          onblur="saveTaskTitle('${t.id}',this.textContent)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}"
+          onclick="event.stopPropagation()">${t.title}</span>
+      </div>
+      <div class="row" style="gap:8px;flex:none">
+        ${statusTag(t.status)}
+        <button class="btn ghost" style="margin:0;padding:6px 12px;width:auto;font-size:13px" onclick="go('task/${t.id}')">→</button>
+      </div>
+    </div>
     <div class="muted" style="margin-top:6px;font-size:13px">${t.suppliers?.length||0} поставщиков · ${t.createdAt}</div>
   </div>`;
+}
+function saveTaskTitle(id, text){
+  const t=findTask(id); if(!t) return;
+  const v=text.trim(); if(!v||v===t.title) return;
+  t.title=v; saveState();
 }
 
 function renderNew(){
@@ -463,15 +480,39 @@ function toggleDictation(targetId='brief', btnId='micbtn', noteId='micnote'){
   recog.onend = ()=>{ if(btn) btn.classList.remove('rec'); setNote('✓ Готово.'); recog=null; };
   recog.start();
 }
-function createTask(){
+async function createTask(){
   const brief = document.getElementById('brief').value.trim();
   if(!brief){ alert('Опиши, что нужно купить'); return; }
   const id = 't'+Date.now();
-  const title = brief.length>48 ? brief.slice(0,48)+'…' : brief;
-  state.tasks.unshift({ id, title, brief, status:'researching',
-    createdAt:new Date().toISOString().slice(0,10), suppliers:[], report:null, chat:[], filters:{} });
+  const title = brief.length>52 ? brief.slice(0,52)+'…' : brief;
+  const task = { id, title, brief, status:'researching',
+    createdAt:new Date().toISOString().slice(0,10), suppliers:[], report:null, chat:[], filters:{} };
+  state.tasks.unshift(task);
   saveState();
   go('research/'+id);
+  // Generate short AI title + clean brief in background
+  if(state.settings.openaiKey){
+    try{
+      const r=await fetch('https://api.openai.com/v1/chat/completions',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.openaiKey},
+        body:JSON.stringify({model:'gpt-4o-mini',max_tokens:120,
+          messages:[{role:'user',content:
+`Задача покупателя — голосовой поток:
+"${brief}"
+
+Верни JSON: {"title":"краткое название до 7 слов (товар + ключевые параметры)","brief":"чистая структурированная версия задачи на русском: что купить, сколько, параметры, регион, бюджет, дополнительно (сушка и т.п.)"}
+Только JSON, без markdown.`}]})
+      });
+      const d=await r.json();
+      if(r.ok){
+        let obj; try{ obj=JSON.parse(d.choices[0].message.content); } catch{ obj=null; }
+        if(obj?.title){ task.title=obj.title.trim(); }
+        if(obj?.brief){ task.brief=obj.brief.trim(); }
+        saveState();
+      }
+    } catch(e){}
+  }
 }
 
 function findTask(id){ return state.tasks.find(t=>t.id===id); }
@@ -481,8 +522,15 @@ function renderTask(id){
   if(!t){ go('home'); return; }
   setHeader(t.title, statusLabel(t.status), 'home');
   document.getElementById('view').innerHTML = `
-    <div class="card"><div class="muted" style="font-size:13px">Задача</div>
-      <div style="margin-top:6px">${t.brief}</div></div>
+    <div class="card">
+      <div contenteditable="true" spellcheck="false"
+        style="font-weight:650;font-size:17px;outline:none;margin-bottom:8px"
+        onblur="saveTaskTitle('${t.id}',this.textContent)"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">${t.title}</div>
+      <div contenteditable="true" spellcheck="false"
+        style="color:var(--muted);font-size:14px;outline:none;line-height:1.5;white-space:pre-wrap"
+        onblur="(function(el){const v=el.textContent.trim();if(v){const t=findTask('${t.id}');if(t){t.brief=v;saveState();}}})(this)">${t.brief}</div>
+    </div>
     <h2>Дальше</h2>
     ${t.status==='researching'
       ? `<button class="btn" onclick="go('research/${t.id}')">Смотреть ресёрч</button>`
