@@ -435,58 +435,10 @@ function renderNav(active){
 
 /* ---------- screens ---------- */
 function renderContacts(){
-  setHeader('Звонки', `все поставщики · ${state.settings.city}`);
-  const v = document.getElementById('view');
-  // collect all suppliers across all tasks, newest task first
-  const all = [];
-  for(const t of state.tasks){
-    for(const s of (t.suppliers||[])){
-      if(s.phone||s.website) all.push({...s, _taskId:t.id, _taskTitle:t.title});
-    }
-  }
-  if(!all.length){
-    v.innerHTML=`<div class="empty"><div class="ic">📞</div>
-      <div style="margin-top:12px">Поставщиков пока нет</div>
-      <button class="btn" style="margin-top:24px" onclick="go('new')">➕ Новая задача</button></div>`;
-    return;
-  }
-  // search
-  let q='';
-  function draw(){
-    const list = q ? all.filter(s=>
-      (s.name+s.addr+s.phone+s._taskTitle).toLowerCase().includes(q.toLowerCase())) : all;
-    v.innerHTML=`
-      <input id="csearch" placeholder="🔍 Поиск по имени, телефону, задаче…" value="${q}"
-        style="margin-bottom:12px">
-      ${list.length===0?'<div class="empty"><div class="ic">🔍</div><div>Ничего не найдено</div></div>':''}
-      ${list.map(s=>{
-        const ph=s.phone?s.phone.replace(/\s/g,''):'';
-        const priceTxt=s.price!=null?`${s.price} ${s.currency}`:'';
-        const stockDot=s.inStock===true?'#1ba35a':s.inStock===false?'#e23744':'#aaa';
-        return `<div class="card" style="padding:14px">
-          <div class="row sb" style="gap:8px">
-            <div style="flex:1;min-width:0">
-              <div style="font-weight:650;font-size:16px">${s.name}</div>
-              ${s.addr?`<div class="muted" style="font-size:12px;margin-top:2px">📍 ${s.addr}</div>`:''}
-              <div class="muted" style="font-size:11px;margin-top:3px">
-                <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${stockDot};vertical-align:middle;margin-right:4px"></span>
-                ${s._taskTitle}${priceTxt?` · ${priceTxt}`:''}
-              </div>
-            </div>
-            ${ph?`<a href="tel:${ph}" style="flex:none;background:var(--good);color:#fff;border:none;border-radius:50%;width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:22px;text-decoration:none" onclick="event.stopPropagation()">📞</a>`:''}
-          </div>
-          ${ph?`<div style="font-size:14px;color:var(--accent);margin-top:8px">${s.phone}</div>`:''}
-          <div class="row" style="gap:8px;margin-top:10px">
-            ${ph?`<a class="btn sec" href="tel:${ph}" style="flex:1;text-align:center;padding:10px;text-decoration:none;font-size:14px">📞 Позвонить</a>`:''}
-            <button class="btn ghost" style="flex:1;margin:0;padding:10px;font-size:14px" onclick="go('report/${s._taskId}')">→ Отчёт</button>
-          </div>
-        </div>`;}).join('')}
-      <button class="btn ghost" style="margin-top:4px" onclick="go('new')">➕ Новая задача / поиск</button>
-      <div style="height:8px"></div>`;
-    const inp=document.getElementById('csearch');
-    if(inp){ inp.oninput=e=>{ q=e.target.value; draw(); }; }
-  }
-  draw();
+  // Find most recent task with suppliers, show its CRM
+  const t = state.tasks.find(t=>t.suppliers&&t.suppliers.length) || state.tasks[0];
+  if(!t){ renderHome(); return; }
+  renderCRM(t.id);
 }
 function renderHome(){
   setHeader('Байер', `${state.settings.city}, ${state.settings.country}`);
@@ -833,7 +785,15 @@ function retryResearch(id){
 function renderCRM(id){
   const t = findTask(id);
   if(!t){ go('home'); return; }
-  setHeader('CRM поставщиков', `${t.title} · ${t.suppliers.length} шт.`, 'task/'+id);
+  const otherTasks = state.tasks.filter(x=>x.id!==id&&x.suppliers?.length);
+  setHeader(
+    otherTasks.length
+      ? `<select style="background:none;border:none;font:inherit;font-size:17px;font-weight:650;color:var(--txt);max-width:220px;cursor:pointer" onchange="go('contacts');setTimeout(()=>renderCRM(this.value),0)">
+          <option value="${id}" selected>${t.title}</option>
+          ${otherTasks.map(x=>`<option value="${x.id}">${x.title}</option>`).join('')}
+        </select>`
+      : t.title,
+    `${t.suppliers.length} поставщиков`, null);
   const v = document.getElementById('view');
   t.filters = t.filters || {};
   const expanded = new Set();
