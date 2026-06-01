@@ -481,32 +481,31 @@ function renderContacts(){
         const open=expanded.has(key);
         const task=findTask(s._taskId);
         const hasCalls=(task?.calls||[]).some(c=>c.supplierId===s.id);
-        return `<div class="card" style="padding:14px;cursor:pointer" data-ckey="${key}">
-          <div class="row sb" style="gap:8px">
+        return `<div class="card" style="padding:14px">
+          <div class="row sb" style="gap:8px;cursor:pointer" data-ckey="${key}">
             <div style="flex:1;min-width:0">
-              <div style="font-weight:650;font-size:16px">${open?'▾':'▸'} ${s.name}</div>
+              <div style="font-weight:650;font-size:16px">${s.name}</div>
               ${s.addr?`<div class="muted" style="font-size:12px;margin-top:2px">📍 ${s.addr}</div>`:''}
               <div class="muted" style="font-size:11px;margin-top:3px">
                 <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${stockDot};vertical-align:middle;margin-right:4px"></span>
-                ${s._taskTitle}${priceTxt?` · ${priceTxt}`:''}${hasCalls?' · 📞':''}
+                ${s._taskTitle}${priceTxt?` · ${priceTxt}`:''}${hasCalls?` · <b>📞 ${(task?.calls||[]).filter(c=>c.supplierId===s.id).length} зв.</b>`:''}
               </div>
             </div>
             ${ph?`<a href="tel:${ph}" style="flex:none;background:var(--good);color:#fff;border:none;border-radius:50%;width:46px;height:46px;display:flex;align-items:center;justify-content:center;font-size:22px;text-decoration:none" onclick="event.stopPropagation()">📞</a>`:''}
           </div>
-          ${open?`
-            ${ph?`<div style="font-size:14px;color:var(--accent);margin-top:8px">${s.phone}</div>`:''}
-            <div class="row" style="gap:8px;margin-top:10px">
-              ${ph?`<button class="btn sec" style="flex:1;padding:10px;font-size:14px" onclick="event.stopPropagation();confirmCall('${s._taskId}','${s.id}')">🤖 AI звонок</button>`:''}
-              <button class="btn ghost" style="flex:none;margin:0;padding:10px 14px;font-size:14px" onclick="event.stopPropagation();go('task/${s._taskId}')">→ Задача</button>
-            </div>
-            ${callHistoryHtml(s._taskId, s.id)}
-          `:''}
+          ${ph?`<div style="font-size:14px;color:var(--accent);margin-top:8px">${s.phone}</div>`:''}
+          <div class="row" style="gap:8px;margin-top:10px">
+            ${ph?`<button class="btn sec" style="flex:1;padding:10px;font-size:14px" onclick="confirmCall('${s._taskId}','${s.id}')">🎙 Транскрибировать звонок</button>`:''}
+            <button class="btn ghost" style="flex:none;margin:0;padding:10px 14px;font-size:14px" onclick="go('task/${s._taskId}')">→ Задача</button>
+          </div>
+          ${open?`<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">${callHistoryHtml(s._taskId, s.id)||'<div class="muted" style="font-size:12px">Звонков пока нет</div>'}</div>`:''}
         </div>`;}).join('')}
       <button class="btn ghost" style="margin-top:4px" onclick="go('new')">➕ Новая задача / поиск</button>
       <div style="height:8px"></div>`;
     const inp=document.getElementById('csearch');
     if(inp){ inp.oninput=e=>{ q=e.target.value; draw(); }; }
-    v.querySelectorAll('[data-ckey]').forEach(el=>el.onclick=()=>{
+    v.querySelectorAll('[data-ckey]').forEach(el=>el.onclick=e=>{
+      if(e.target.closest('a,button')) return;
       const k=el.dataset.ckey; expanded.has(k)?expanded.delete(k):expanded.add(k); draw();
     });
   }
@@ -1376,131 +1375,163 @@ function applyRefine(t, text){
 }
 
 /* ---------- live call: transcript stream + listen + human takeover (mock; ElevenLabs+Twilio in M2) ---------- */
-let callTimer=null;
 function confirmCall(taskId, supId){
   const t=findTask(taskId); const sup=t&&t.suppliers.find(s=>s.id===supId);
   if(!sup) return;
-  if(confirm(`Позвонить ассистентом поставщику «${sup.name}» (${sup.phone}) на ${state.settings.callLang.toLowerCase()} языке?\n\nАссистент представится как ИИ и задаст вопросы из скрипта. Ты можешь слушать и перехватить разговор.`)){
+  if(confirm(`Открыть транскрипцию звонка с «${sup.name}»?\n\nВключи громкую связь на телефоне — браузер будет слушать и записывать текст. Аудио не сохраняется.`)){
     go(`call/${taskId}/${supId}`);
   }
 }
-function supAnswer(sup, i){
-  const c=sup.currency;
-  switch(i){
-    case 0: return sup.inStock?`Tak, mamy na stanie. / Да, есть на складе, ~${20+(hashStr(sup.id)%40)} шт.`:'Niestety teraz nie ma. / Сейчас нет, только под заказ.';
-    case 1: return `Cena ${sup.price} ${c} za sztukę. / Цена ${sup.price} ${c} за единицу.`;
-    case 2: return sup.inStock?'Przy większej ilości rabat 5–8%. / При партии скидка 5–8%.':'Rabaty po potwierdzeniu zamówienia. / Скидки после подтверждения заказа.';
-    case 3: return sup.inStock?'Można odebrać dziś lub jutro. / Можно забрать сегодня-завтра.':'Dostawa około 3–5 dni. / Поставка ~3–5 дней.';
-    case 4: return `Dostawa po mieście ${Math.round(sup.price*0.4)} ${c}. / Доставка по городу ${Math.round(sup.price*0.4)} ${c}.`;
-    case 5: return 'Płatność kartą lub przelewem, zaliczka 30%. / Оплата картой/переводом, предоплата 30%.';
-    default: return 'Możemy zaproponować zamiennik. / Можем предложить аналог.';
-  }
-}
-function buildDialog(t, sup){
-  const sc = t.callScript || buildCallScript(t);
-  const lines = [
-    {who:'ai', text: sc.intro},
-    {who:'sup', text: 'Eee… a kto mówi? To jakiś robot? / Эээ… а кто это? Это робот?'},     // confusion
-    {who:'ai', text: sc.clarify || buildCallScript(t).clarify},                              // handle confusion
-    {who:'sup', text: 'Aha, rozumiem. Proszę pytać. / А, понял. Спрашивайте.'},
-  ];
-  sc.questions.forEach((q,i)=>{ lines.push({who:'ai',text:q}); lines.push({who:'sup',text:supAnswer(sup,i)}); });
-  lines.push({who:'ai', text: sc.closing});
-  return lines;
-}
+let _callRecog = null;   // active SpeechRecognition for live transcription
+
 function renderCall(taskId, supId){
   const t=findTask(taskId); const sup=t&&t.suppliers.find(s=>s.id===supId);
   if(!sup){ go('home'); return; }
   t.calls = t.calls || [];
   let call = t.calls.find(c=>c.supplierId===supId);
-  if(!call){ call={supplierId:supId, status:'live', transcript:[], takenOver:false, listening:true, createdAt:new Date().toISOString()}; t.calls.unshift(call); }
-  const dialog = buildDialog(t, sup);
-  setHeader('Звонок · '+sup.name, sup.phone, 'report/'+taskId);
+  if(!call){
+    call={supplierId:supId, status:'live', transcript:[], createdAt:new Date().toISOString()};
+    t.calls.unshift(call);
+    saveState();
+  }
+  setHeader(sup.name, sup.phone, 'task/'+taskId);
   const v=document.getElementById('view');
-  if(callTimer){ clearInterval(callTimer); callTimer=null; }
 
-  function statusText(){
-    if(call.status==='done') return 'Звонок завершён';
-    if(call.takenOver) return 'Вы в эфире — ИИ на паузе';
-    return 'Идёт разговор · ИИ ведёт';
-  }
   function drawLog(){
-    const log=document.getElementById('calllog');
-    if(!log) return;
+    const log=document.getElementById('calllog'); if(!log) return;
     log.innerHTML = call.transcript.map(m=>`
-      <div class="bubble ${m.who}">
-        <div class="who">${m.who==='ai'?'🤖 ИИ-ассистент':m.who==='sup'?'🏪 '+sup.name:'🙋 Вы'}</div>${m.text}</div>`).join('');
+      <div style="margin-bottom:8px">
+        <div style="font-size:11px;color:var(--muted);margin-bottom:2px">${m.t||''}</div>
+        <div style="font-size:14px;line-height:1.5;background:var(--panel2);border-radius:10px;padding:8px 12px">${m.text}</div>
+      </div>`).join('');
     log.scrollTop=log.scrollHeight;
-    const st=document.getElementById('callstatus'); if(st) st.textContent=statusText();
+    const interim=document.getElementById('interim'); if(interim) interim.scrollIntoView({block:'nearest'});
   }
-  function controls(){
-    if(call.status==='done'){
-      return `<button class="btn" onclick="go('task/${taskId}')">Готово · к задаче</button>`;
-    }
-    if(call.takenOver){
-      return `<div class="livebar">
-        <input id="opin" placeholder="Ваша реплика поставщику…" autocomplete="off">
-        <button onclick="sendOp('${taskId}','${supId}')" style="flex:none;width:46px;border:none;border-radius:12px;background:var(--good);color:#fff;font-size:18px;cursor:pointer">▶</button>
-      </div>
-      <div style="height:8px"></div>
-      <button class="btn sec" onclick="endCall('${taskId}','${supId}')">⏹ Завершить звонок</button>`;
-    }
-    return `<div class="livebar">
-      <button class="btn ${call.listening?'':'sec'}" onclick="toggleListen('${taskId}','${supId}')">${call.listening?'🎧 Слушаю эфир':'🔇 Звук выкл'}</button>
-      <button class="btn" onclick="takeOver('${taskId}','${supId}')">✋ Перехватить</button>
-      <button class="btn sec" onclick="endCall('${taskId}','${supId}')">⏹</button>
-    </div>`;
-  }
+
   function draw(){
-    v.innerHTML = `
-      <div class="card">
+    const done=call.status==='done';
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    const noSR=!SR;
+    v.innerHTML=`
+      <div class="card" style="margin-bottom:12px">
         <div class="row sb">
-          <span class="rec ${call.listening?'listening':''}"><span class="blob"></span>${call.status==='done'?'Запись сохранена':'Идёт запись'}</span>
+          <span class="${done?'':'rec listening'}"><span class="blob"></span>${done?'Транскрипция сохранена':'Слушаю…'}</span>
           <span class="muted" style="font-size:12px">${state.settings.callLang}</span>
         </div>
-        <div id="callstatus" style="margin-top:8px;font-weight:600">${statusText()}</div>
+        ${noSR?`<div class="muted" style="font-size:12px;margin-top:6px">⚠️ Браузер не поддерживает распознавание речи — используй Chrome или Safari.</div>`:''}
+        ${!done?`<div class="muted" style="font-size:12px;margin-top:6px">📱 Включи громкую связь на телефоне — браузер будет слушать и записывать текст.</div>`:''}
       </div>
-      <div id="calllog" style="display:flex;flex-direction:column;gap:10px;padding-bottom:140px"></div>
-      ${controls()}`;
+      <div id="calllog" style="padding-bottom:120px"></div>
+      <div id="interim" style="font-size:13px;color:var(--muted);padding:4px 12px;min-height:20px"></div>
+      <div style="position:fixed;bottom:calc(60px + env(safe-area-inset-bottom));left:0;right:0;max-width:560px;margin:0 auto;padding:12px 16px;background:var(--panel);border-top:1px solid var(--line)">
+        ${done
+          ? `<div class="row" style="gap:8px">
+              <button class="btn" style="flex:1" onclick="go('task/${taskId}')">← К задаче</button>
+              <button class="btn ghost" style="flex:none;padding:12px 14px" onclick="extractFromCall(findTask('${taskId}'),findTask('${taskId}').calls.find(c=>c.supplierId==='${supId}'),findTask('${taskId}').suppliers.find(s=>s.id==='${supId}'));saveState();go('task/${taskId}')">🤖 Извлечь данные</button>
+            </div>`
+          : `<button class="btn sec" style="width:100%" onclick="endCall('${taskId}','${supId}')">⏹ Завершить звонок</button>`
+        }
+      </div>`;
     drawLog();
-    if(call.takenOver){ const i=document.getElementById('opin'); if(i){ i.focus(); i.onkeydown=e=>{if(e.key==='Enter')sendOp(taskId,supId);}; } }
+    if(!done && !noSR) startTranscription(taskId, supId, call);
   }
-  renderCall._draw=draw;
-  draw();
 
-  // stream the AI↔supplier dialogue
-  if(call.status==='live' && !call.takenOver){
-    let idx = call.transcript.length;
-    callTimer=setInterval(()=>{
-      if(parseHash().name!=='call'){ clearInterval(callTimer); callTimer=null; return; }
-      if(call.takenOver || call.status!=='live'){ clearInterval(callTimer); callTimer=null; return; }
-      if(idx>=dialog.length){ clearInterval(callTimer); callTimer=null; call.status='done'; extractFromCall(t,call,sup); saveState(); draw(); return; }
-      call.transcript.push(dialog[idx]); idx++; saveState(); drawLog();
-    }, 1500);
+  draw();
+}
+
+function startTranscription(taskId, supId, call){
+  if(_callRecog){ try{ _callRecog.stop(); }catch(e){} _callRecog=null; }
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR) return;
+  const lang = SPEECH_LANG[state.settings.callLang] || SPEECH_LANG[state.settings.assistantLang] || 'pl-PL';
+  const recog = new SR();
+  recog.lang = lang;
+  recog.continuous = true;
+  recog.interimResults = true;
+  recog.maxAlternatives = 1;
+  _callRecog = recog;
+
+  recog.onresult = e=>{
+    const interim_el=document.getElementById('interim');
+    let interim='';
+    // commit any new final results
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal){
+        const txt=e.results[i][0].transcript.trim();
+        if(txt){
+          const now=new Date().toLocaleTimeString('ru',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+          call.transcript.push({text:txt, t:now});
+          saveState();
+          const log=document.getElementById('calllog');
+          if(log){
+            const div=document.createElement('div');
+            div.style.marginBottom='8px';
+            div.innerHTML=`<div style="font-size:11px;color:var(--muted);margin-bottom:2px">${now}</div>
+              <div style="font-size:14px;line-height:1.5;background:var(--panel2);border-radius:10px;padding:8px 12px">${txt}</div>`;
+            log.appendChild(div);
+            log.scrollTop=log.scrollHeight;
+          }
+        }
+      } else {
+        interim += e.results[i][0].transcript;
+      }
+    }
+    if(interim_el) interim_el.textContent=interim;
+  };
+
+  recog.onerror = e=>{
+    if(e.error==='no-speech') return;   // ignore silence gaps
+    const interim_el=document.getElementById('interim');
+    if(interim_el) interim_el.textContent='⚠️ '+e.error;
+  };
+
+  recog.onend = ()=>{
+    // auto-restart if call still live and we're still on call screen
+    if(parseHash().name==='call' && call.status==='live'){
+      try{ recog.start(); }catch(e){}
+    } else {
+      _callRecog=null;
+    }
+  };
+
+  try{ recog.start(); }catch(e){}
+}
+
+function endCall(taskId, supId){
+  const t=findTask(taskId); const c=t.calls.find(x=>x.supplierId===supId);
+  if(_callRecog){ try{ _callRecog.stop(); }catch(e){} _callRecog=null; }
+  c.status='done';
+  extractFromCall(t, c, t.suppliers.find(s=>s.id===supId));
+  saveState();
+  // re-render call screen to show done state
+  renderCall(taskId, supId);
+}
+
+async function extractFromCall(t, call, sup){
+  if(!call.transcript.length) return;
+  // Try AI extraction of price/stock from transcript text
+  const text = call.transcript.map(m=>m.text).join('\n');
+  if(state.settings.openaiKey){
+    try{
+      const r=await fetch('https://api.openai.com/v1/chat/completions',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+state.settings.openaiKey},
+        body:JSON.stringify({model:'gpt-4o-mini',max_tokens:200,
+          messages:[{role:'user',content:
+`Это транскрипция звонка поставщику. Извлеки данные.
+Транскрипция:
+${text}
+
+Верни JSON: {"price": число или null, "currency": "PLN", "inStock": true/false/null, "summary": "1-2 предложения — что узнали"}
+Только JSON.`}]})
+      });
+      const d=await r.json();
+      if(r.ok){
+        let obj; try{ obj=JSON.parse(d.choices[0].message.content); }catch{ obj=null; }
+        if(obj){ call.extracted={...obj, confirmed:true}; saveState(); }
+      }
+    } catch(e){}
   }
-}
-function toggleListen(taskId,supId){ const t=findTask(taskId); const c=t.calls.find(x=>x.supplierId===supId); c.listening=!c.listening; saveState(); renderCall._draw&&renderCall._draw(); }
-function takeOver(taskId,supId){
-  const t=findTask(taskId); const c=t.calls.find(x=>x.supplierId===supId);
-  if(callTimer){ clearInterval(callTimer); callTimer=null; }
-  c.takenOver=true; c.transcript.push({who:'ai',text:'(ИИ передаёт разговор оператору…)'}); saveState();
-  renderCall._draw&&renderCall._draw();
-}
-function sendOp(taskId,supId){
-  const inp=document.getElementById('opin'); const text=inp.value.trim(); if(!text) return;
-  const t=findTask(taskId); const c=t.calls.find(x=>x.supplierId===supId);
-  c.transcript.push({who:'op',text}); inp.value=''; saveState();
-  renderCall._draw&&renderCall._draw();
-}
-function endCall(taskId,supId){
-  const t=findTask(taskId); const c=t.calls.find(x=>x.supplierId===supId);
-  if(callTimer){ clearInterval(callTimer); callTimer=null; }
-  c.status='done'; extractFromCall(t,c,t.suppliers.find(s=>s.id===supId)); saveState();
-  renderCall._draw&&renderCall._draw();
-}
-function extractFromCall(t,call,sup){
-  // mock structured extraction (LLM in M2): confirm price/stock from "call"
-  call.extracted = { price:sup.price, currency:sup.currency, inStock:sup.inStock, confirmed:true };
 }
 
 /* ---------- call script (questions the AI asks each supplier) ---------- */
