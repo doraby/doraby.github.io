@@ -1376,11 +1376,7 @@ function applyRefine(t, text){
 
 /* ---------- live call: transcript stream + listen + human takeover (mock; ElevenLabs+Twilio in M2) ---------- */
 function confirmCall(taskId, supId){
-  const t=findTask(taskId); const sup=t&&t.suppliers.find(s=>s.id===supId);
-  if(!sup) return;
-  if(confirm(`Открыть транскрипцию звонка с «${sup.name}»?\n\nВключи громкую связь на телефоне — браузер будет слушать и записывать текст. Аудио не сохраняется.`)){
-    go(`call/${taskId}/${supId}`);
-  }
+  go(`call/${taskId}/${supId}`);
 }
 let _callRecog = null;   // active SpeechRecognition for live transcription
 
