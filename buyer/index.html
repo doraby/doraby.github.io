@@ -697,8 +697,40 @@ function renderCRM(id){
       saveState(); draw();
       return;
     }
+    // Search command → re-run research (optionally with extra query)
+    if(/^\s*(найди|поищи|ищи|исследуй|search|find|ещё|добавь ещё|добавь еще|ещё поставщик|покажи ещё)/i.test(text)||
+       (!state.settings.openaiKey && /^\s*(найд|поищ|иск)/i.test(text))){
+      if(!state.settings.openaiKey){
+        lastReply='Добавь ключ OpenAI в настройках — без него поиск недоступен.';
+        t.chat.push({role:'ai',text:lastReply}); saveState(); draw(); return;
+      }
+      const extra=text.replace(/^\s*(найди|поищи|ищи|исследуй|search|find|ещё|добавь ещё|добавь еще|ещё поставщик|покажи ещё)\s*/i,'').trim();
+      const briefOrig=t.brief||t.title;
+      if(extra) t.brief=briefOrig+(extra?'\nДополнительно: '+extra:'');
+      lastReply='🔍 Ищу…';
+      t.chat.push({role:'ai',text:lastReply}); saveState(); draw();
+      try{
+        const newSuppliers=await openaiResearch(t);
+        t.brief=briefOrig; // restore original
+        const before=t.suppliers.length;
+        const combined=dedupeSuppliers([...t.suppliers,...newSuppliers]);
+        t.suppliers=combined;
+        t.chat.pop();
+        const added=t.suppliers.length-before;
+        lastReply=`Нашла ещё ${added>0?added:'0 новых'} поставщиков. Всего в CRM: ${t.suppliers.length}.`;
+        t.chat.push({role:'ai',text:lastReply});
+        if(t.report) t.report=buildReport(t);
+      } catch(e){
+        t.brief=briefOrig;
+        t.chat.pop();
+        lastReply=`Ошибка поиска: ${e.message||e}`;
+        t.chat.push({role:'ai',text:lastReply});
+      }
+      saveState(); draw(); return;
+    }
     lastReply=applyRefine(t,text);
     if(lastReply) t.chat.push({role:'ai',text:lastReply});
+    else { lastReply=''; }
     if(t.report) t.report=buildReport(t);
     saveState(); draw();
   }
@@ -767,7 +799,7 @@ function renderChat(id){
         `<div class="bubble ${m.role}">${m.text}</div>`).join('')}</div>
       <div class="chatbar">
         <button id="chatmic" class="chatmic" onclick="toggleDictation('chatin','chatmic',null)" title="Диктовать голосом">🎤</button>
-        <input id="chatin" placeholder="Например: только в наличии, до 40 PLN…" autocomplete="off">
+        <input id="chatin" placeholder="«найди ещё», «только в наличии», «до 40 PLN», ссылка…" autocomplete="off">
         <button onclick="sendChat('${id}')">▶</button>
       </div>`;
     const log=document.getElementById('chatlog'); log.scrollTop=log.scrollHeight;
@@ -778,14 +810,49 @@ function renderChat(id){
   renderChat._draw=draw;
   draw();
 }
-function sendChat(id){
+async function sendChat(id){
   const t=findTask(id); if(!t) return;
   const inp=document.getElementById('chatin'); const text=inp.value.trim();
   if(!text) return;
   t.chat.push({role:'me', text});
   inp.value='';
+  // URL → parse page
+  const urlM=text.match(/^(https?:\/\/\S+)/i);
+  if(urlM){
+    const url=urlM[1];
+    t.chat.push({role:'ai',text:'⏳ Открываю страницу…'});
+    saveState(); renderChat._draw&&renderChat._draw();
+    try{
+      const sup=await fetchSupplierFromUrl(url);
+      t.suppliers.unshift(sup); t.chat.pop();
+      t.chat.push({role:'ai',text:`Добавила: «${sup.name}»${sup.price!=null?` · ${sup.price} ${sup.currency}`:''}${sup.phone?` · ${sup.phone}`:''}.`});
+    } catch(e){ t.chat.pop(); t.chat.push({role:'ai',text:`Ошибка: ${e.message||e}`}); }
+    if(t.report) t.report=buildReport(t); saveState(); renderChat._draw&&renderChat._draw(); return;
+  }
+  // Search command → re-run research
+  if(/^\s*(найди|поищи|ищи|исследуй|search|find|ещё|добавь ещё|добавь еще|покажи ещё)/i.test(text)){
+    if(!state.settings.openaiKey){
+      t.chat.push({role:'ai',text:'Добавь ключ OpenAI в настройках — без него поиск недоступен.'});
+      saveState(); renderChat._draw&&renderChat._draw(); return;
+    }
+    const extra=text.replace(/^\s*(найди|поищи|ищи|исследуй|search|find|ещё|добавь ещё|добавь еще|покажи ещё)\s*/i,'').trim();
+    const briefOrig=t.brief||t.title;
+    if(extra) t.brief=briefOrig+'\nДополнительно: '+extra;
+    t.chat.push({role:'ai',text:'🔍 Ищу…'});
+    saveState(); renderChat._draw&&renderChat._draw();
+    try{
+      const newSuppliers=await openaiResearch(t);
+      t.brief=briefOrig;
+      const before=t.suppliers.length;
+      t.suppliers=dedupeSuppliers([...t.suppliers,...newSuppliers]);
+      t.chat.pop();
+      t.chat.push({role:'ai',text:`Нашла ещё ${t.suppliers.length-before>0?t.suppliers.length-before:'0 новых'} поставщиков. Всего: ${t.suppliers.length}.`});
+      if(t.report) t.report=buildReport(t);
+    } catch(e){ t.brief=briefOrig; t.chat.pop(); t.chat.push({role:'ai',text:`Ошибка поиска: ${e.message||e}`}); }
+    saveState(); renderChat._draw&&renderChat._draw(); return;
+  }
   const reply=applyRefine(t, text);
-  t.chat.push({role:'ai', text:reply});
+  if(reply) t.chat.push({role:'ai', text:reply});
   if(t.report) t.report=buildReport(t);
   saveState();
   renderChat._draw && renderChat._draw();
