@@ -131,6 +131,12 @@
   .chatmic{flex:none;width:46px;border:1px solid var(--line);border-radius:12px;background:var(--panel2);
     color:var(--txt);font-size:18px;cursor:pointer}
   .chatmic.rec{background:var(--bad);color:#fff;border-color:var(--bad);animation:pulse 1.2s infinite}
+  .crmbar{position:fixed;bottom:calc(60px + env(safe-area-inset-bottom));left:0;right:0;max-width:560px;
+    margin:0 auto;padding:10px 14px;background:rgba(255,255,255,.97);backdrop-filter:blur(10px);border-top:1px solid var(--line)}
+  .crmbar input{flex:1}
+  .crm-reply{font-size:12px;color:var(--muted);margin-bottom:8px;line-height:1.35}
+  table.crm tr.detail td{background:var(--panel2);font-size:13px;line-height:1.5;white-space:normal;color:var(--txt)}
+  table.crm tr[data-exp]{cursor:pointer}
   .chatbar button{flex:none;width:46px;border:none;border-radius:12px;background:var(--accent);color:#fff;
     font-size:18px;cursor:pointer}
   /* live call */
@@ -165,12 +171,16 @@ let state;     // initialized after data + seedTasks are declared (avoids TDZ)
 
 function loadState(){
   const def = {
-    settings:{ buyerName:'Алёна Довгаленок', country:'Польша', city:'Краков',
-               assistantLang:'Русский', callLang:'Польский', currency:'PLN',
+    settings:{ buyerName:'Алёна Довгаленок', country:'Польша', city:'Trzciana',
+               radiusKm:30, assistantLang:'Русский', callLang:'Польский', currency:'PLN',
                openaiKey:'', openaiModel:'gpt-5.4' },
     tasks: seedTasks()
   };
-  try{ const s = JSON.parse(localStorage.getItem(LS)); return s ? {...def, ...s} : def; }
+  try{
+    const s = JSON.parse(localStorage.getItem(LS));
+    if(!s) return def;
+    return { ...def, ...s, settings:{ ...def.settings, ...(s.settings||{}) } };  // deep-merge settings so new fields get defaults
+  }
   catch(e){ return def; }
 }
 function saveState(){ localStorage.setItem(LS, JSON.stringify(state)); }
@@ -254,22 +264,43 @@ function normalizeSupplier(o,i,cur){
     inStock: o.inStock===true||o.in_stock===true ? true : (o.inStock===false||o.in_stock===false ? false : null),
     rating:num(o.rating),
     reviews:num(o.reviews)||0,
+    distanceKm:num(o.distance_km),
+    why:(o.why||o.reason||'').toString(),
     notes:(o.notes||'').toString(),
-    source:(o.source_url||o.source||o.website||'').toString().replace(/^https?:\/\//,''),
+    sourceUrl:(o.source_url||o.source||(o.website?('https://'+o.website.replace(/^https?:\/\//,'')):'')).toString(),
+    source:(o.source_url||o.source||o.website||'').toString().replace(/^https?:\/\//,'').replace(/\/.*$/,''),
   };
+}
+function dedupeSuppliers(arr){
+  const seen=new Set(), out=[];
+  for(const s of arr){
+    const key = (s.phone||'').replace(/\D/g,'') || (s.website||'').toLowerCase() || s.name.toLowerCase().trim();
+    if(key && seen.has(key)) continue;
+    if(key) seen.add(key);
+    out.push(s);
+  }
+  return out.map((s,i)=>({...s,id:'s'+i}));
 }
 async function openaiResearch(t){
   const s=state.settings;
+  const radius = s.radiusKm||30;
   const prompt=
-`Ты — ассистент-байер. Найди в интернете реальных поставщиков/магазины, где можно КУПИТЬ то, что нужно покупателю, в указанном регионе.
-Регион: ${s.city}, ${s.country}. Валюта по умолчанию: ${s.currency}.
-Задача покупателя: "${t.brief}".
+`Ты — ассистент-байер. Через ВЕБ-ПОИСК найди реальных поставщиков/магазины, где можно КУПИТЬ то, что нужно покупателю, МАКСИМАЛЬНО БЛИЗКО к его локации.
 
-Найди как можно больше релевантных поставщиков (цель — 15–30), реальные названия, телефоны и сайты из региона.
-Верни СТРОГО JSON-массив объектов без markdown и без пояснений. Поля каждого объекта:
-{"name","phone","address","website","price"(число за единицу или null),"currency","inStock"(true/false/null),"rating"(0-5 или null),"reviews"(число или null),"notes"(кратко по-русски: наличие/доставка/условия),"source_url"}.
-Если точной цены/наличия нет — ставь null, не выдумывай. notes — на русском.`;
+ЛОКАЦИЯ ПОКУПАТЕЛЯ: ${s.city}${s.country?', '+s.country:''}. Радиус поиска: примерно ${radius} км вокруг ${s.city}.
+Валюта по умолчанию: ${s.currency}.
+ЗАДАЧА: "${t.brief}".
+
+ЖЁСТКИЕ ПРАВИЛА:
+1. Сначала ищи в самом ${s.city} и в ближайших населённых пунктах (в радиусе ${radius} км). Сортируй результаты ОТ БЛИЖАЙШЕГО к дальнему. Не предлагай поставщиков из других регионов/далёких городов, если есть ближе.
+2. Только РЕАЛЬНЫЕ компании, найденные через веб-поиск, у каждой должен быть рабочий "source_url" (страница, где ты взял данные). Если не можешь подтвердить телефон/адрес/источник — НЕ включай. Лучше 8 реальных и близких, чем 25 случайных.
+3. НЕ дублируй: одна компания = одна запись (объединяй филиалы).
+4. Ничего не выдумывай: нет данных — ставь null.
+
+Верни СТРОГО JSON-массив без markdown. Поля объекта:
+{"name","phone","address","website","distance_km"(число, прим. расстояние от ${s.city} или null),"price"(за единицу или null),"currency","inStock"(true/false/null),"rating"(0-5 или null),"reviews"(число или null),"why"(1 фраза по-русски: ПОЧЕМУ этот контакт релевантен — что продаёт/насколько близко),"notes"(кратко по-русски: наличие/доставка/условия),"source_url"(рабочая ссылка-подтверждение)}.`;
   const body={ model:s.openaiModel||'gpt-5.4', input:prompt };
+  if(/^(gpt-5|o\d)/.test(body.model)) body.reasoning={ effort:'high' };   // deeper search for reasoning models
   // try modern then legacy web-search tool type
   async function call(toolType){
     const b = toolType ? {...body, tools:[{type:toolType}]} : body;
@@ -289,7 +320,8 @@ async function openaiResearch(t){
   const data=await res.json();
   const arr=parseJSONLoose(extractText(data));
   if(!Array.isArray(arr)||!arr.length) throw new Error('Модель не вернула список поставщиков.');
-  return arr.map((o,i)=>normalizeSupplier(o,i,s.currency));
+  const mapped = arr.map((o,i)=>normalizeSupplier(o,i,s.currency));
+  return dedupeSuppliers(mapped).sort((a,b)=>(a.distanceKm??1e9)-(b.distanceKm??1e9));
 }
 
 function seedTasks(){
@@ -538,13 +570,18 @@ function renderCRM(id){
   setHeader('CRM поставщиков', `${t.title} · ${t.suppliers.length} шт.`, 'task/'+id);
   const v = document.getElementById('view');
   t.filters = t.filters || {};
-  let sort = 'price', dir = 1;            // dir: 1 asc, -1 desc
+  const expanded = new Set();
+  let lastReply='', inputVal='';
+  const hasDist = t.suppliers.some(s=>s.distanceKm!=null);
+  let sort = hasDist?'distance':'price', dir = 1;
   const cols = [
-    ['name','Поставщик'], ['price','Цена'], ['stock','Наличие'],
-    ['rating','Рейтинг'], ['phone','Телефон']
+    ['name','Поставщик'], ...(hasDist?[['distance','≈км']]:[]),
+    ['price','Цена'], ['stock','Наличие'], ['rating','Рейтинг'], ['phone','Телефон']
   ];
+  const colspan = cols.length;
   const cmp = {
     name:(a,b)=>a.name.localeCompare(b.name),
+    distance:(a,b)=>(a.distanceKm??1e9)-(b.distanceKm??1e9),
     price:(a,b)=>(a.price??1e9)-(b.price??1e9),
     stock:(a,b)=>((b.inStock?1:0)-(a.inStock?1:0)),
     rating:(a,b)=>(b.rating??0)-(a.rating??0),
@@ -554,40 +591,90 @@ function renderCRM(id){
     const f=t.filters;
     return arr.filter(s=>
       (!f.inStock || s.inStock) &&
-      (f.maxPrice==null || s.price<=f.maxPrice) &&
-      (f.minRating==null || s.rating>=f.minRating));
+      (f.maxPrice==null || (s.price!=null && s.price<=f.maxPrice)) &&
+      (f.minRating==null || (s.rating!=null && s.rating>=f.minRating)) &&
+      (f.maxDist==null || (s.distanceKm!=null && s.distanceKm<=f.maxDist)));
   }
   function chips(){
     const f=t.filters, c=[];
     if(f.inStock) c.push(['inStock','только в наличии']);
     if(f.maxPrice!=null) c.push(['maxPrice',`до ${f.maxPrice} ${state.settings.currency}`]);
     if(f.minRating!=null) c.push(['minRating',`рейтинг ≥ ${f.minRating}`]);
+    if(f.maxDist!=null) c.push(['maxDist',`≤ ${f.maxDist} км`]);
     if(!c.length) return '';
     return `<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:10px">${
       c.map(([k,l])=>`<span class="tag accent" data-clr="${k}" style="cursor:pointer">${l} ✕</span>`).join('')}</div>`;
+  }
+  function rowFor(s,i){
+    const open = expanded.has(s.id);
+    const cells = [
+      `<td><div class="nm">${open?'▾':'▸'} ${s.name}</div><div class="ad">📍 ${s.addr||'—'}</div></td>`,
+      ...(hasDist?[`<td>${s.distanceKm!=null?'~'+s.distanceKm:'—'}</td>`]:[]),
+      `<td class="pr">${s.price!=null? s.price+' '+s.currency : '—'}</td>`,
+      `<td>${stockCell(s.inStock)}</td>`,
+      `<td>${s.rating!=null? s.rating+(s.reviews?` <span class="muted" style="font-size:11px">(${s.reviews})</span>`:'') : '—'}</td>`,
+      `<td>${s.phone? `<a class="tel" data-stop href="tel:${s.phone.replace(/\s/g,'')}">${s.phone}</a>` : '<span class="muted">—</span>'}</td>`,
+    ].join('');
+    let detail='';
+    if(open){
+      const src = s.sourceUrl || (s.website?('https://'+s.website):'');
+      detail = `<tr class="detail"><td colspan="${colspan}">
+        <div><b>Почему в списке:</b> ${s.why || '— модель не указала обоснование'}</div>
+        ${s.distanceKm!=null?`<div style="margin-top:4px">📍 ~${s.distanceKm} км от ${state.settings.city}</div>`:''}
+        ${s.notes?`<div style="margin-top:4px">📝 ${s.notes}</div>`:''}
+        <div style="margin-top:4px">🔗 ${src?`<a href="${src}" target="_blank" rel="noopener">источник: ${(s.source||src).replace(/^https?:\/\//,'')}</a>`:'источник не указан'}</div>
+      </td></tr>`;
+    }
+    return `<tr class="${i===0?'row1':''}" data-exp="${s.id}">${cells}</tr>${detail}`;
   }
   function draw(){
     const list = apply(t.suppliers).sort((a,b)=>cmp[sort](a,b)*dir);
     v.innerHTML = `
       <div class="row sb" style="margin-bottom:10px">
-        <span class="muted" style="font-size:13px">${list.length} из ${t.suppliers.length}</span>
-        <button class="btn ghost" style="margin:0;width:auto;padding:8px 14px" onclick="go('chat/${id}')">💬 Уточнить поиск</button>
+        <span class="muted" style="font-size:13px">${list.length} из ${t.suppliers.length} · ${state.settings.city}</span>
+        <button class="btn ghost" style="margin:0;width:auto;padding:8px 14px" onclick="go('chat/${id}')">💬 Уточнить / добавить</button>
       </div>
       ${chips()}
       <div class="tblwrap"><div class="tblscroll"><table class="crm">
         <thead><tr>${cols.map(([k,l])=>
           `<th data-k="${k}" class="${sort===k?'sorted':''}">${l}${
             sort===k?` <span class="ar">${dir>0?'▲':'▼'}</span>`:''}</th>`).join('')}</tr></thead>
-        <tbody>${list.map((s,i)=>rowHTML(s,i)).join('')}</tbody>
+        <tbody>${list.map((s,i)=>rowFor(s,i)).join('')}</tbody>
       </table></div></div>
-      <div class="demo-note">Заголовок столбца — сортировка · чат — уточнения</div>
-      <button class="btn ghost" onclick="go('report/${id}')">📊 К отчёту</button>`;
+      <div class="demo-note">Нажми на строку — почему контакт добавлен и источник · заголовок — сортировка</div>
+      <button class="btn ghost" onclick="go('report/${id}')">📊 К отчёту</button>
+      <div style="height:96px"></div>
+      <div class="crmbar">
+        ${lastReply?`<div class="crm-reply">🤖 ${lastReply}</div>`:''}
+        <div class="row" style="gap:8px">
+          <button class="chatmic" id="crmmic" onclick="toggleDictation('crmin','crmmic',null)" title="Диктовать">🎤</button>
+          <input id="crmin" placeholder="«до 40», «не дальше 20 км» или «добавь Название, +48…»" autocomplete="off">
+          <button id="crmsend" style="flex:none;width:46px;border:none;border-radius:12px;background:var(--accent);color:#fff;font-size:18px;cursor:pointer">▶</button>
+        </div>
+      </div>`;
     v.querySelectorAll('th').forEach(th=>th.onclick=()=>{
       const k=th.dataset.k;
-      if(sort===k){ dir=-dir; } else { sort=k; dir = (k==='name'||k==='phone')?1:(k==='price'?1:-1); }
+      if(sort===k){ dir=-dir; } else { sort=k; dir = (k==='price'||k==='distance'||k==='name'||k==='phone')?1:-1; }
       draw();
     });
+    v.querySelectorAll('tr[data-exp]').forEach(tr=>tr.onclick=e=>{
+      if(e.target.closest('[data-stop]')) return;       // don't toggle when tapping phone link
+      const sid=tr.dataset.exp; expanded.has(sid)?expanded.delete(sid):expanded.add(sid); draw();
+    });
     v.querySelectorAll('[data-clr]').forEach(el=>el.onclick=()=>{ delete t.filters[el.dataset.clr]; saveState(); draw(); });
+    const inp=document.getElementById('crmin');
+    inp.value=inputVal;
+    inp.oninput=e=>{ inputVal=e.target.value; };
+    inp.onkeydown=e=>{ if(e.key==='Enter') submit(); };
+    document.getElementById('crmsend').onclick=submit;
+  }
+  function submit(){
+    const text=(inputVal||'').trim(); if(!text) return;
+    t.chat=t.chat||[]; t.chat.push({role:'me',text});
+    lastReply=applyRefine(t,text);
+    t.chat.push({role:'ai',text:lastReply});
+    if(t.report) t.report=buildReport(t);
+    inputVal=''; saveState(); draw();
   }
   draw();
 }
@@ -644,7 +731,7 @@ function renderChat(id){
   if(!t){ go('home'); return; }
   t.chat = t.chat || [];
   if(!t.chat.length){
-    t.chat.push({role:'ai', text:`Нашла ${t.suppliers.length} поставщиков по задаче «${t.title}». Можешь уточнить поиск: например «только в наличии», «дешевле 40», «рейтинг от 4.3», «только с доставкой». Что скорректировать?`});
+    t.chat.push({role:'ai', text:`Нашла ${t.suppliers.length} поставщиков по «${t.title}». Команды: «только в наличии», «до 40», «рейтинг от 4.3», «не дальше 20 км», «сбросить». Чтобы добавить контакт вручную — «добавь Название, +48 12 345 67 89, сайт.pl».`});
   }
   setHeader('Уточнение поиска', t.title, 'crm/'+id);
   const v = document.getElementById('view');
@@ -678,22 +765,40 @@ function sendChat(id){
   renderChat._draw && renderChat._draw();
 }
 function applyRefine(t, text){
-  const q=text.toLowerCase(); t.filters=t.filters||{}; const acts=[];
+  t.filters=t.filters||{};
+  // --- ADD a contact to CRM: "добавь <название> <телефон> <сайт>" ---
+  if(/^\s*(добав|внеси|добавь|add)/i.test(text)){
+    const rest=text.replace(/^\s*(добав\w*|внеси|add\w*)\s*/i,'').trim();
+    const phone=(rest.match(/(\+?\d[\d\s\-()]{6,}\d)/)||[])[1]||'';
+    const url=(rest.match(/([a-z0-9-]+\.[a-z]{2,}(?:\/\S*)?)/i)||[])[1]||'';
+    let name=rest.replace(phone,'').replace(url,'').replace(/\b(тел\.?|телефон|сайт|phone)\b/ig,'').replace(/[,;:]+/g,' ').trim();
+    if(!name) name='Новый поставщик';
+    const sup={ id:'s'+Date.now(), name, phone, addr:'', website:url.replace(/^https?:\/\//,''),
+      price:null, currency:state.settings.currency, inStock:null, rating:null, reviews:0,
+      distanceKm:null, why:'Добавлено вручную через чат', notes:'Добавлено вручную',
+      sourceUrl:url?('https://'+url.replace(/^https?:\/\//,'')):'', source:url.replace(/^https?:\/\//,'') };
+    t.suppliers.unshift(sup);
+    return `Добавила в CRM: «${name}»${phone?`, тел. ${phone}`:''}${url?`, ${url}`:''}. Всего ${t.suppliers.length}.`;
+  }
+  const q=text.toLowerCase(); const acts=[];
   if(/налич|в наличии|есть на складе|сегодня/.test(q)){ t.filters.inStock=true; acts.push('оставила только тех, у кого товар в наличии'); }
   if(/достав/.test(q)){ t.filters.inStock=true; acts.push('приоритет — с доставкой/наличием'); }
   const mPrice=q.match(/(?:дешевл|до|меньше|не дороже|бюджет)\D{0,6}(\d+[.,]?\d*)/);
   if(mPrice){ const v=parseFloat(mPrice[1].replace(',','.')); t.filters.maxPrice=v; acts.push(`потолок цены ${v} ${state.settings.currency}`); }
   const mRat=q.match(/рейтинг\D{0,6}(\d[.,]?\d?)/);
   if(mRat){ const v=parseFloat(mRat[1].replace(',','.')); t.filters.minRating=v; acts.push(`рейтинг не ниже ${v}`); }
-  if(/сброс|очист|все|сними фильтр/.test(q)){ t.filters={}; acts.length=0; acts.push('сбросила все фильтры'); }
+  const mDist=q.match(/(?:в радиусе|ближе|до|не дальше|в пределах)\D{0,6}(\d+)\s*км/);
+  if(mDist){ const v=parseFloat(mDist[1]); t.filters.maxDist=v; acts.push(`не дальше ${v} км`); }
+  if(/сброс|очист|сними фильтр/.test(q)){ t.filters={}; acts.length=0; acts.push('сбросила все фильтры'); }
+  if(!acts.length){
+    return `Чтобы ДОБАВИТЬ контакт — напиши «добавь Название, +48..., сайт.pl». Чтобы отфильтровать — «только в наличии», «до 40», «рейтинг от 4.3», «не дальше 20 км», «сбросить».`;
+  }
   const count=t.suppliers.filter(s=>
     (!t.filters.inStock||s.inStock) &&
-    (t.filters.maxPrice==null||s.price<=t.filters.maxPrice) &&
-    (t.filters.minRating==null||s.rating>=t.filters.minRating)).length;
-  if(!acts.length){
-    return `Поняла запрос. На M2 я переформулирую поиск и заново обзвоню источники под это уточнение. Сейчас (демо) умею фильтровать по наличию, цене и рейтингу — попробуй «только в наличии» или «до 40».`;
-  }
-  return `Готово: ${acts.join(', ')}. Подходит ${count} из ${t.suppliers.length} — список в CRM обновлён.`;
+    (t.filters.maxPrice==null||(s.price!=null&&s.price<=t.filters.maxPrice)) &&
+    (t.filters.minRating==null||(s.rating!=null&&s.rating>=t.filters.minRating)) &&
+    (t.filters.maxDist==null||(s.distanceKm!=null&&s.distanceKm<=t.filters.maxDist))).length;
+  return `Готово: ${acts.join(', ')}. Подходит ${count} из ${t.suppliers.length}.`;
 }
 
 /* ---------- live call: transcript stream + listen + human takeover (mock; ElevenLabs+Twilio in M2) ---------- */
@@ -902,7 +1007,10 @@ function renderSettings(){
   document.getElementById('view').innerHTML = `
     <label>Имя покупателя (звучит в звонке)</label><input id="buyerName" value="${s.buyerName||''}">
     <label>Страна</label><input id="country" value="${s.country}">
-    <label>Город</label><input id="city" value="${s.city}">
+    <label>Локация поиска (город / село / район)</label>
+    <input id="city" value="${s.city}" placeholder="напр. Trzciana, gmina Bochnia">
+    <label>Радиус поиска: <b id="radlbl">${s.radiusKm||30}</b> км</label>
+    <input id="radius" type="range" min="5" max="150" step="5" value="${s.radiusKm||30}" oninput="document.getElementById('radlbl').textContent=this.value">
     <label>Язык общения с ассистентом</label>
     <select id="aLang">${langs.map(l=>`<option ${l===s.assistantLang?'selected':''}>${l}</option>`).join('')}</select>
     <label>Язык звонков поставщикам</label>
@@ -925,6 +1033,7 @@ function renderSettings(){
 function saveSettings(){
   state.settings = {
     buyerName:val('buyerName'), country:val('country'), city:val('city'),
+    radiusKm:Number(document.getElementById('radius').value)||30,
     assistantLang:val('aLang'), callLang:val('cLang'), currency:val('curr'),
     openaiKey:val('oaiKey'), openaiModel:val('oaiModel')||'gpt-5.4'
   };
