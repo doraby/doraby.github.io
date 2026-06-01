@@ -623,11 +623,19 @@ function renderCRM(id){
     let detail='';
     if(open){
       const src = s.sourceUrl || (s.website?('https://'+s.website):'');
+      const fld=(label,key,val,ph)=>`<label style="margin:8px 2px 2px">${label}</label>
+        <input class="edit-fld" data-sid="${s.id}" data-key="${key}" value="${(val??'').toString().replace(/"/g,'&quot;')}" placeholder="${ph||''}">`;
       detail = `<tr class="detail"><td colspan="${colspan}">
-        <div><b>Почему в списке:</b> ${s.why || '— модель не указала обоснование'}</div>
-        ${s.distanceKm!=null?`<div style="margin-top:4px">📍 ~${s.distanceKm} км от ${state.settings.city}</div>`:''}
-        ${s.notes?`<div style="margin-top:4px">📝 ${s.notes}</div>`:''}
-        <div style="margin-top:4px">🔗 ${src?`<a href="${src}" target="_blank" rel="noopener">источник: ${(s.source||src).replace(/^https?:\/\//,'')}</a>`:'источник не указан'}</div>
+        ${fld('Название','name',s.name)}
+        ${fld('Телефон','phone',s.phone,'+48…')}
+        ${fld('Адрес','addr',s.addr)}
+        <div class="row" style="gap:8px">
+          <div style="flex:1">${fld('Цена','price',s.price,'—')}</div>
+          <div style="flex:1">${fld('Валюта','currency',s.currency)}</div>
+        </div>
+        ${fld('Почему в списке','why',s.why,'твоя заметка…')}
+        ${fld('Заметки','notes',s.notes)}
+        <div style="margin-top:8px">🔗 ${src?`<a href="${src}" target="_blank" rel="noopener">источник: ${(s.source||src).replace(/^https?:\/\//,'')}</a>`:'источник не указан'}</div>
         <button class="btn sec" data-del="${s.id}" style="margin-top:10px;width:auto;padding:8px 14px;color:var(--bad)">🗑 Удалить</button>
       </td></tr>`;
     }
@@ -683,6 +691,16 @@ function renderCRM(id){
       expanded.delete(sid);
       if(t.report) t.report=buildReport(t);
       saveState(); draw();
+    });
+    v.querySelectorAll('.edit-fld').forEach(inp=>{
+      inp.onchange=()=>{
+        const sup=t.suppliers.find(x=>x.id===inp.dataset.sid); if(!sup) return;
+        const k=inp.dataset.key; let val=inp.value.trim();
+        if(k==='price'){ val=val===''?null:parseFloat(val.replace(',','.')); if(isNaN(val)) val=null; }
+        sup[k]=val;
+        if(k==='price'&&t.report) t.report=buildReport(t);
+        saveState();
+      };
     });
     const inp=document.getElementById('crmin');
     inp.value=inputVal;
