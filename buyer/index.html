@@ -394,8 +394,19 @@ const routes = {
   'new': renderNew, 'settings': renderSettings,
   'task': renderTask, 'research': renderResearch,
   'crm': renderCRM, 'report': (id)=>go('task/'+id), 'script': renderScript,
-  'chat': renderChat, 'call': renderCall,
+  'chat': renderChat, 'call': renderCall, 'contact': renderContact,
 };
+// supplier deal status (editable in CRM column + contact page)
+const STATUS_OPTS = [
+  ['', '—'],
+  ['есть', '✅ Есть нужное'],
+  ['заказ', '📦 Под заказ'],
+  ['нет', '❌ Нет / не подходит'],
+  ['перезвонить', '🔁 Перезвонить'],
+  ['дорого', '💸 Дорого'],
+  ['отказ', '🚫 Отказ'],
+];
+function statusLabelOf(v){ const o=STATUS_OPTS.find(x=>x[0]===(v||'')); return o?o[1]:'—'; }
 function go(hash){ location.hash = hash; }
 function parseHash(){
   const raw = location.hash.replace(/^#\/?/, '');
@@ -773,7 +784,7 @@ function renderCRM(id, taskMode){
   let sort = hasDist?'distance':'price', dir = 1;
   const cols = [
     ['name','Поставщик'], ...(hasDist?[['distance','≈км']]:[]),
-    ['price','Цена'], ['stock','Наличие'], ['rating','Рейтинг'], ['phone','Телефон']
+    ['price','Цена'], ['status','Статус'], ['rating','Рейтинг'], ['phone','Телефон']
   ];
   const colspan = cols.length;
   const cmp = {
@@ -781,6 +792,7 @@ function renderCRM(id, taskMode){
     distance:(a,b)=>(a.distanceKm??1e9)-(b.distanceKm??1e9),
     price:(a,b)=>(a.price??1e9)-(b.price??1e9),
     stock:(a,b)=>((b.inStock?1:0)-(a.inStock?1:0)),
+    status:(a,b)=>(a.status||'я').localeCompare(b.status||'я'),
     rating:(a,b)=>(b.rating??0)-(a.rating??0),
     phone:(a,b)=>a.name.localeCompare(b.name),
   };
@@ -803,35 +815,18 @@ function renderCRM(id, taskMode){
       c.map(([k,l])=>`<span class="tag accent" data-clr="${k}" style="cursor:pointer">${l} ✕</span>`).join('')}</div>`;
   }
   function rowFor(s,i){
-    const open = expanded.has(s.id);
+    const stColor=s.status==='нет'||s.status==='отказ'?'var(--bad)':s.status==='есть'?'var(--good)':'var(--muted)';
+    const calls=(t.calls||[]).filter(c=>c.supplierId===s.id).length;
     const cells = [
-      `<td><div class="nm">${open?'▾':'▸'} ${s.name}</div><div class="ad">📍 ${s.addr||'—'}</div></td>`,
+      `<td><div class="nm">${s.name}${calls?` <span class="muted" style="font-size:11px">📞${calls}</span>`:''}</div><div class="ad">📍 ${s.addr||'—'}</div></td>`,
       ...(hasDist?[`<td>${s.distanceKm!=null?'~'+s.distanceKm:'—'}</td>`]:[]),
       `<td class="pr">${s.price!=null? s.price+' '+s.currency : '—'}</td>`,
-      `<td>${stockCell(s.inStock)}</td>`,
+      `<td><select class="status-fld" data-sid="${s.id}" data-stop style="background:none;border:none;font:inherit;font-size:12px;color:${stColor};cursor:pointer;max-width:96px">${
+        STATUS_OPTS.map(([v,l])=>`<option value="${v}" ${(s.status||'')===v?'selected':''}>${l}</option>`).join('')}</select></td>`,
       `<td>${s.rating!=null? s.rating+(s.reviews?` <span class="muted" style="font-size:11px">(${s.reviews})</span>`:'') : '—'}</td>`,
       `<td>${s.phone? `<a class="tel" data-stop href="tel:${s.phone.replace(/\s/g,'')}">${s.phone}</a>` : '<span class="muted">—</span>'}</td>`,
     ].join('');
-    let detail='';
-    if(open){
-      const src = s.sourceUrl || (s.website?('https://'+s.website):'');
-      const fld=(label,key,val,ph)=>`<label style="margin:8px 2px 2px">${label}</label>
-        <input class="edit-fld" data-sid="${s.id}" data-key="${key}" value="${(val??'').toString().replace(/"/g,'&quot;')}" placeholder="${ph||''}">`;
-      detail = `<tr class="detail"><td colspan="${colspan}">
-        ${fld('Название','name',s.name)}
-        ${fld('Телефон','phone',s.phone,'+48…')}
-        ${fld('Адрес','addr',s.addr)}
-        <div class="row" style="gap:8px">
-          <div style="flex:1">${fld('Цена','price',s.price,'—')}</div>
-          <div style="flex:1">${fld('Валюта','currency',s.currency)}</div>
-        </div>
-        ${fld('Почему в списке','why',s.why,'твоя заметка…')}
-        ${fld('Заметки','notes',s.notes)}
-        <div style="margin-top:8px">🔗 ${src?`<a href="${src}" target="_blank" rel="noopener">источник: ${(s.source||src).replace(/^https?:\/\//,'')}</a>`:'источник не указан'}</div>
-        <button class="btn sec" data-del="${s.id}" style="margin-top:10px;width:auto;padding:8px 14px;color:var(--bad)">🗑 Удалить</button>
-      </td></tr>`;
-    }
-    return `<tr class="${i===0?'row1':''}" data-exp="${s.id}">${cells}</tr>${detail}`;
+    return `<tr class="${i===0?'row1':''}" data-open="${s.id}">${cells}</tr>`;
   }
   function draw(){
     const list = apply(t.suppliers).sort((a,b)=>cmp[sort](a,b)*dir);
@@ -871,30 +866,16 @@ function renderCRM(id, taskMode){
       if(sort===k){ dir=-dir; } else { sort=k; dir = (k==='price'||k==='distance'||k==='name'||k==='phone')?1:-1; }
       draw();
     });
-    v.querySelectorAll('tr[data-exp]').forEach(tr=>tr.onclick=e=>{
-      if(e.target.closest('[data-stop]')) return;       // don't toggle when tapping phone link
-      const sid=tr.dataset.exp; expanded.has(sid)?expanded.delete(sid):expanded.add(sid); draw();
+    v.querySelectorAll('tr[data-open]').forEach(tr=>tr.onclick=e=>{
+      if(e.target.closest('[data-stop]')) return;       // don't navigate when tapping phone link / status select
+      go('contact/'+id+'/'+tr.dataset.open);
+    });
+    v.querySelectorAll('.status-fld').forEach(sel=>sel.onchange=e=>{
+      e.stopPropagation();
+      const sup=t.suppliers.find(x=>x.id===sel.dataset.sid); if(!sup) return;
+      sup.status=sel.value; saveState(); draw();
     });
     v.querySelectorAll('[data-clr]').forEach(el=>el.onclick=()=>{ delete t.filters[el.dataset.clr]; saveState(); draw(); });
-    v.querySelectorAll('[data-del]').forEach(btn=>btn.onclick=e=>{
-      e.stopPropagation();
-      const sid=btn.dataset.del; const sup=t.suppliers.find(x=>x.id===sid);
-      if(!confirm(`Удалить «${sup?sup.name:''}» из CRM?`)) return;
-      t.suppliers=t.suppliers.filter(x=>x.id!==sid);
-      expanded.delete(sid);
-      if(t.report) t.report=buildReport(t);
-      saveState(); draw();
-    });
-    v.querySelectorAll('.edit-fld').forEach(inp=>{
-      inp.onchange=()=>{
-        const sup=t.suppliers.find(x=>x.id===inp.dataset.sid); if(!sup) return;
-        const k=inp.dataset.key; let val=inp.value.trim();
-        if(k==='price'){ val=val===''?null:parseFloat(val.replace(',','.')); if(isNaN(val)) val=null; }
-        sup[k]=val;
-        if(k==='price'&&t.report) t.report=buildReport(t);
-        saveState();
-      };
-    });
     const inp=document.getElementById('crmin');
     inp.value=inputVal;
     const grow=el=>{ el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,160)+'px'; };
@@ -1028,6 +1009,89 @@ async function renderInlineScript(t){
       <div style="font-size:13px;line-height:1.5">${sc.closing||''}</div>
     </div>
   </div>`;
+}
+/* ---------- contact detail page ---------- */
+function renderContact(taskId, supId){
+  const t=findTask(taskId); const s=t&&t.suppliers.find(x=>x.id===supId);
+  if(!s){ go('home'); return; }
+  setHeader(s.name||'Контакт', t.title, 'task/'+taskId);
+  const v=document.getElementById('view');
+  const src = s.sourceUrl || (s.website?('https://'+s.website):'');
+  const calls=(t.calls||[]).filter(c=>c.supplierId===supId);
+  const esc=x=>(x??'').toString().replace(/"/g,'&quot;');
+  const fld=(label,key,val,ph)=>`<label style="display:block;font-size:12px;color:var(--muted);margin:10px 2px 3px">${label}</label>
+    <input class="cfld" data-key="${key}" value="${esc(val)}" placeholder="${ph||''}" style="width:100%">`;
+  function draw(){
+    v.innerHTML=`
+      <!-- status -->
+      <div class="card" style="margin-bottom:12px">
+        <label style="display:block;font-size:12px;color:var(--muted);margin-bottom:6px">Статус сделки</label>
+        <select id="c-status" style="width:100%;font-size:15px;padding:10px;border-radius:12px">${
+          STATUS_OPTS.map(([val,l])=>`<option value="${val}" ${(s.status||'')===val?'selected':''}>${l}</option>`).join('')}</select>
+      </div>
+
+      <!-- quick call -->
+      <div class="row" style="gap:8px;margin-bottom:12px">
+        ${s.phone?`<a class="btn sec" href="tel:${s.phone.replace(/\s/g,'')}" style="flex:1;text-align:center;text-decoration:none;padding:12px">📞 ${s.phone}</a>`:''}
+        <button class="btn" style="flex:1;padding:12px" onclick="go('call/${taskId}/${supId}')">🎙 Транскрибировать</button>
+      </div>
+
+      <!-- editable fields -->
+      <div class="card" style="margin-bottom:12px">
+        ${fld('Название','name',s.name)}
+        ${fld('Телефон','phone',s.phone,'+48…')}
+        ${fld('Адрес','addr',s.addr)}
+        <div class="row" style="gap:8px">
+          <div style="flex:2">${fld('Цена','price',s.price,'—')}</div>
+          <div style="flex:1">${fld('Валюта','currency',s.currency)}</div>
+        </div>
+        ${fld('Рейтинг','rating',s.rating,'—')}
+        <label style="display:block;font-size:12px;color:var(--muted);margin:10px 2px 3px">Заметки</label>
+        <textarea class="cfld" data-key="notes" placeholder="что узнали, договорённости, на что обратить внимание…" style="width:100%;min-height:90px;resize:vertical">${(s.notes||'')}</textarea>
+        ${s.why?`<div class="muted" style="font-size:12px;margin-top:10px">💡 ${s.why}</div>`:''}
+        <div style="margin-top:10px;font-size:12px">🔗 ${src?`<a href="${src}" target="_blank" rel="noopener" style="color:var(--accent)">источник</a>`:'<span class="muted">источник не указан</span>'}</div>
+      </div>
+
+      <!-- call history -->
+      <div class="row sb" style="margin:4px 2px 8px">
+        <b style="font-size:14px">История звонков · ${calls.length}</b>
+      </div>
+      ${calls.length? calls.map(c=>{
+        const when=c.createdAt?new Date(c.createdAt).toLocaleString('ru',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+        const lines=(c.transcript||[]);
+        return `<div class="card" style="margin-bottom:10px">
+          <div class="row sb">
+            <span style="font-size:13px;font-weight:600">${c.status==='done'?'✅':'🔴'} ${when}</span>
+            <button class="btn ghost" style="margin:0;padding:4px 10px;font-size:12px" onclick="go('call/${taskId}/${supId}')">Открыть →</button>
+          </div>
+          ${c.extracted?.summary?`<div style="margin-top:8px;font-size:13px;line-height:1.5;background:var(--panel2);border-radius:10px;padding:10px">📝 ${c.extracted.summary}</div>`:''}
+          ${(c.extracted?.price!=null||c.extracted?.inStock!=null)?`<div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">
+            ${c.extracted.price!=null?`<span class="tag accent">${c.extracted.price} ${c.extracted.currency||''}</span>`:''}
+            ${c.extracted.inStock!=null?`<span class="tag ${c.extracted.inStock?'good':''}">${c.extracted.inStock?'в наличии':'нет в наличии'}</span>`:''}
+          </div>`:''}
+          ${lines.length?`<details style="margin-top:8px"><summary style="cursor:pointer;font-size:12px;color:var(--muted)">Транскрипция (${lines.length})</summary>
+            <div style="margin-top:6px;font-size:12px;line-height:1.5;color:var(--txt)">${lines.map(m=>`<div style="margin-bottom:4px"><span class="muted">${m.t||''}</span> ${m.text}</div>`).join('')}</div>
+          </details>`:''}
+        </div>`;
+      }).join('') : `<div class="muted" style="font-size:13px;padding:8px 2px">Звонков пока нет. Нажми «Транскрибировать», чтобы записать разговор.</div>`}
+
+      <button class="btn ghost" style="margin-top:8px;color:var(--bad)" onclick="if(confirm('Удалить «${(s.name||'').replace(/'/g,'')}» из CRM?')){const tt=findTask('${taskId}');tt.suppliers=tt.suppliers.filter(x=>x.id!=='${supId}');if(tt.report)tt.report=buildReport(tt);saveState();go('task/${taskId}');}">🗑 Удалить контакт</button>
+      <div style="height:40px"></div>`;
+
+    // wire status
+    document.getElementById('c-status').onchange=e=>{ s.status=e.target.value; saveState(); };
+    // wire editable fields
+    v.querySelectorAll('.cfld').forEach(inp=>inp.onchange=()=>{
+      const k=inp.dataset.key; let val=inp.value.trim();
+      if(k==='price'){ val=val===''?null:parseFloat(val.replace(',','.')); if(isNaN(val))val=null; }
+      if(k==='rating'){ val=val===''?null:parseFloat(val.replace(',','.')); if(isNaN(val))val=null; }
+      s[k]=val;
+      if(k==='price'&&t.report) t.report=buildReport(t);
+      saveState();
+      if(k==='name') setHeader(s.name||'Контакт', t.title, 'task/'+taskId);
+    });
+  }
+  draw();
 }
 /* ---------- CRM map (Leaflet + OSM + Nominatim geocoding) ---------- */
 let _leafletReady=null;
