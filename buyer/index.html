@@ -831,7 +831,6 @@ function renderCRM(id, taskMode){
   function draw(){
     const list = apply(t.suppliers).sort((a,b)=>cmp[sort](a,b)*dir);
     v.innerHTML = `
-      ${taskMode?taskTopHtml(t):''}
       <div class="row sb" style="margin-bottom:10px">
         <span class="muted" style="font-size:13px">${list.length} из ${t.suppliers.length} · ${state.settings.city}</span>
         <button class="btn ghost" style="margin:0;width:auto;padding:8px 14px" onclick="go('chat/${id}')">💬 Добавить</button>
@@ -851,7 +850,6 @@ function renderCRM(id, taskMode){
       </table></div></div>
       `
       }
-      ${taskMode?`<div id="inline-script" style="margin-top:16px"></div>`:''}
       <div style="height:96px"></div>
       <div class="crmbar">
         ${lastReply?`<div class="crm-reply">🤖 ${lastReply}</div>`:''}
@@ -978,7 +976,6 @@ function renderCRM(id, taskMode){
     saveState(); draw();
   }
   draw();
-  if(taskMode) renderInlineScript(t);
 }
 async function renderInlineScript(t){
   const el=document.getElementById('inline-script'); if(!el) return;
@@ -1097,21 +1094,27 @@ function renderContact(taskId, supId){
 let _leafletReady=null;
 function loadLeaflet(){
   if(_leafletReady) return _leafletReady;
-  _leafletReady=new Promise(res=>{
+  _leafletReady=new Promise((res,rej)=>{
     if(window.L){ res(); return; }
     const lnk=document.createElement('link');
     lnk.rel='stylesheet'; lnk.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
     document.head.appendChild(lnk);
     const s=document.createElement('script');
     s.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    s.onload=res; document.head.appendChild(s);
+    s.onload=()=>res();
+    s.onerror=()=>{ _leafletReady=null; rej(new Error('leaflet load failed')); };
+    document.head.appendChild(s);
   });
   return _leafletReady;
 }
 let _crmMap=null;
 async function initCrmMap(list, t){
-  await loadLeaflet();
   const el=document.getElementById('crmmap'); if(!el) return;
+  el.innerHTML='<div class="muted" style="display:flex;align-items:center;justify-content:center;height:100%;font-size:13px">🗺 Загружаю карту…</div>';
+  try{ await loadLeaflet(); }
+  catch(e){ el.innerHTML='<div class="muted" style="display:flex;align-items:center;justify-content:center;height:100%;font-size:13px;text-align:center;padding:20px">⚠️ Не удалось загрузить карту (нет сети или блокировка).</div>'; return; }
+  if(!document.getElementById('crmmap')) return;   // toggled away while loading
+  el.innerHTML='';
   const city=state.settings.city||'Poland';
   // geocode city center once
   if(!t._mapCenter){
@@ -1127,6 +1130,8 @@ async function initCrmMap(list, t){
   _crmMap=map;
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
     attribution:'© <a href="https://www.openstreetmap.org/copyright">OSM</a>',maxZoom:19}).addTo(map);
+  // container was just inserted — recompute size so tiles render correctly
+  setTimeout(()=>{ if(_crmMap===map) map.invalidateSize(); },150);
   // star marker for city center
   L.marker(center,{icon:L.divIcon({className:'',html:'<div style="font-size:22px;line-height:1">📍</div>',iconAnchor:[11,22]})})
     .addTo(map).bindPopup(`<b>${city}</b>`);
