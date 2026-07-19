@@ -215,6 +215,12 @@
   .wiki-card a.wc-link { display: inline-block; margin-top: 8px; font-size: 12.5px; color: var(--accent); text-decoration: none; font-style: italic; }
   .wiki-card a.wc-link:hover { text-decoration: underline; }
 
+  .img-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .img-grid a { display: block; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--bg); }
+  .img-grid img { width: 100%; height: 100px; object-fit: cover; display: block; transition: transform .2s; }
+  .img-grid a:hover img { transform: scale(1.05); }
+  .img-credit { font-size: 11.5px; color: var(--muted); font-style: italic; margin-top: 8px; }
+
   #web-out { font-size: 14.5px; line-height: 1.62; }
   #web-out p { margin-bottom: 10px; }
   #web-out a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(193,95,60,.3); }
@@ -312,7 +318,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver">v1.5</span></div>
+      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver">v1.6</span></div>
       <button class="icon-btn" onclick="openSettings()" title="Настройки" aria-label="Настройки">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -389,7 +395,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Настройки <span class="app-ver">v1.5</span></h2>
+    <h2>Настройки <span class="app-ver">v1.6</span></h2>
     <div class="m-sub">Ключ хранится только в вашем браузере и отправляется только в OpenAI.</div>
     <div class="field">
       <label for="in-key">OpenAI API key</label>
@@ -513,7 +519,7 @@ console.log('Читалка v1.4 |', navigator.userAgent);
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '1.5'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '1.6'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 const LS = {
   key: 'reader.openaiKey',
@@ -1056,9 +1062,40 @@ function runContext(text, gen) {
   zone.innerHTML = `
     <div class="p-section-title">Из интернета</div>
     <div id="wiki-slot"></div>
-    <div id="web-out" class="ctx-pending"><span class="spinner"></span>Ищу в интернете…</div>`;
-  if (text.split(/\s+/).length <= 5) wikiLookup(text, gen);
+    <div id="web-out" class="ctx-pending"><span class="spinner"></span>Ищу в интернете…</div>
+    <div id="img-slot"></div>`;
+  const words = text.split(/\s+/).length;
+  if (words <= 5) wikiLookup(text, gen);
+  if (words <= 8) imageSearch(text, gen);
   webSearch(text, gen);
+}
+
+/* Поиск картинок на Викискладе — бесплатно, без ключа */
+async function imageSearch(term, gen) {
+  try {
+    const url = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*'
+      + '&generator=search&gsrnamespace=6&gsrlimit=8'
+      + '&gsrsearch=' + encodeURIComponent('filetype:bitmap ' + term)
+      + '&prop=imageinfo&iiprop=url&iiurlwidth=420';
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const j = await res.json();
+    const pages = Object.values((j.query && j.query.pages) || {})
+      .filter(p => p.imageinfo && p.imageinfo[0] && p.imageinfo[0].thumburl)
+      .sort((a, b) => (a.index || 99) - (b.index || 99))
+      .slice(0, 6);
+    if (gen !== selGeneration || !pages.length) return;
+    const slot = $('img-slot');
+    if (!slot) return;
+    slot.innerHTML = `
+      <div class="p-section-title">Картинки</div>
+      <div class="img-grid">${pages.map(p => {
+        const ii = p.imageinfo[0];
+        return `<a href="${esc(ii.descriptionurl || ii.url)}" target="_blank" rel="noopener" title="${esc(p.title.replace(/^File:/, ''))}">
+          <img src="${esc(ii.thumburl)}" loading="lazy" alt=""></a>`;
+      }).join('')}</div>
+      <div class="img-credit">Викисклад · нажмите, чтобы открыть</div>`;
+  } catch (e) { console.warn('поиск картинок:', e); }
 }
 
 async function wikiLookup(term, gen) {
