@@ -167,9 +167,24 @@
     z-index: 60; display: flex; flex-direction: column; box-shadow: none;
   }
   #toc.open { transform: none; box-shadow: var(--shadow); }
-  .toc-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 10px; }
-  .toc-head h3 { font-size: 17px; font-weight: 600; }
-  #toc-list { overflow-y: auto; padding: 6px 10px 24px; }
+  .toc-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 14px 10px 16px; }
+  .toc-tabs { display: flex; gap: 4px; }
+  .tab {
+    border: none; background: none; cursor: pointer; font-size: 14.5px; color: var(--muted);
+    padding: 7px 12px; border-radius: 9px; font-weight: 600;
+  }
+  .tab:hover { background: var(--surface-2); }
+  .tab.active { color: var(--accent); background: var(--accent-bg); }
+  #toc-list, #notes-list { overflow-y: auto; padding: 6px 10px 24px; }
+  .note-item { padding: 11px 12px; border-radius: 10px; cursor: pointer; }
+  .note-item:hover { background: var(--surface-2); }
+  .ni-text { font-size: 14px; font-style: italic; line-height: 1.4; border-left: 2px solid var(--accent-soft); padding-left: 9px; }
+  .ni-trans { font-size: 12.5px; color: var(--muted); margin-top: 4px; padding-left: 11px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .notes-empty { color: var(--muted); font-style: italic; font-size: 13.5px; padding: 14px 16px; line-height: 1.5; }
+  .note-meta { font-size: 12px; color: var(--muted); font-style: italic; margin: -14px 0 18px; }
+  .note-actions { display: flex; gap: 10px; margin-top: 26px; }
+  .note-actions .btn { font-size: 13px; padding: 7px 14px; }
   .toc-item {
     display: block; width: 100%; text-align: left; border: none; background: none; cursor: pointer;
     padding: 9px 12px; font-size: 14.5px; border-radius: 8px; line-height: 1.4; color: var(--text);
@@ -318,7 +333,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver">v1.7</span></div>
+      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver">v1.8</span></div>
       <button class="icon-btn" onclick="openSettings()" title="Настройки" aria-label="Настройки">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -377,10 +392,14 @@
 <!-- ════════ TOC drawer ════════ -->
 <div id="toc">
   <div class="toc-head">
-    <h3>Оглавление</h3>
+    <div class="toc-tabs">
+      <button id="tab-toc" class="tab active" onclick="switchTab('toc')">Оглавление</button>
+      <button id="tab-notes" class="tab" onclick="switchTab('notes')">🖍 Хайлайты</button>
+    </div>
     <button class="icon-btn" onclick="toggleToc()" aria-label="Закрыть">✕</button>
   </div>
   <div id="toc-list"></div>
+  <div id="notes-list" style="display:none"></div>
 </div>
 
 <!-- ════════ Right panel ════════ -->
@@ -395,7 +414,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Настройки <span class="app-ver">v1.7</span></h2>
+    <h2>Настройки <span class="app-ver">v1.8</span></h2>
     <div class="m-sub">Ключ хранится только в вашем браузере и отправляется только в OpenAI.</div>
     <div class="field">
       <label for="in-key">OpenAI API key</label>
@@ -519,7 +538,7 @@ console.log('Читалка v1.4 |', navigator.userAgent);
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '1.7'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '1.8'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 const LS = {
   key: 'reader.openaiKey',
@@ -557,7 +576,7 @@ function esc(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
    Основное хранилище — IndexedDB (переживает перезагрузку). Каждая книга
    дублируется в memBooks на время сессии: если IndexedDB недоступна
    (приватный режим, зависание в Safari), читать всё равно можно. */
-const memBooks = new Map();
+const memStores = { books: new Map(), notes: new Map() };
 let storageBroken = false;
 
 function storageFailed(err) {
@@ -574,9 +593,13 @@ function openDB() {
   if (openDB._p) return openDB._p;
   openDB._p = new Promise((res, rej) => {
     let req;
-    try { req = indexedDB.open('reader-library', 1); } catch (e) { return rej(e); }
+    try { req = indexedDB.open('reader-library', 2); } catch (e) { return rej(e); }
     const to = setTimeout(() => rej(new Error('хранилище не отвечает')), 4000);
-    req.onupgradeneeded = () => req.result.createObjectStore('books', { keyPath: 'id' });
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('books')) db.createObjectStore('books', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'id' });
+    };
     req.onsuccess = () => { clearTimeout(to); res(req.result); };
     req.onerror = () => { clearTimeout(to); rej(req.error || new Error('ошибка открытия хранилища')); };
     req.onblocked = () => { clearTimeout(to); rej(new Error('хранилище заблокировано другой вкладкой')); };
@@ -584,52 +607,52 @@ function openDB() {
   openDB._p.catch(() => { openDB._p = null; });
   return openDB._p;
 }
-async function dbPut(record) {
-  memBooks.set(record.id, record);
+async function dbPut(store, record) {
+  memStores[store].set(record.id, record);
   if (storageBroken) return;
   try {
     const db = await openDB();
     await new Promise((res, rej) => {
-      const tx = db.transaction('books', 'readwrite');
-      tx.objectStore('books').put(record);
+      const tx = db.transaction(store, 'readwrite');
+      tx.objectStore(store).put(record);
       tx.oncomplete = res; tx.onerror = () => rej(tx.error);
     });
   } catch (e) { storageFailed(e); }
 }
-async function dbAll() {
+async function dbAll(store) {
   let fromDb = [];
   if (!storageBroken) {
     try {
       const db = await openDB();
       fromDb = await new Promise((res, rej) => {
-        const req = db.transaction('books').objectStore('books').getAll();
+        const req = db.transaction(store).objectStore(store).getAll();
         req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
       });
     } catch (e) { storageFailed(e); }
   }
   const merged = new Map(fromDb.map(b => [b.id, b]));
-  for (const [k, v] of memBooks) merged.set(k, v);
+  for (const [k, v] of memStores[store]) merged.set(k, v);
   return [...merged.values()];
 }
-async function dbGet(id) {
-  if (memBooks.has(id)) return memBooks.get(id);
+async function dbGet(store, id) {
+  if (memStores[store].has(id)) return memStores[store].get(id);
   if (storageBroken) return undefined;
   try {
     const db = await openDB();
     return await new Promise((res, rej) => {
-      const req = db.transaction('books').objectStore('books').get(id);
+      const req = db.transaction(store).objectStore(store).get(id);
       req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
     });
   } catch (e) { storageFailed(e); return undefined; }
 }
-async function dbDelete(id) {
-  memBooks.delete(id);
+async function dbDelete(store, id) {
+  memStores[store].delete(id);
   if (storageBroken) return;
   try {
     const db = await openDB();
     await new Promise((res, rej) => {
-      const tx = db.transaction('books', 'readwrite');
-      tx.objectStore('books').delete(id);
+      const tx = db.transaction(store, 'readwrite');
+      tx.objectStore(store).delete(id);
       tx.oncomplete = res; tx.onerror = () => rej(tx.error);
     });
   } catch (e) { storageFailed(e); }
@@ -637,7 +660,7 @@ async function dbDelete(id) {
 
 /* ════════════════════════ Library UI ════════════════════════ */
 async function renderLibrary() {
-  const books = (await dbAll()).sort((a, b) => (b.lastOpened || b.added) - (a.lastOpened || a.added));
+  const books = (await dbAll('books')).sort((a, b) => (b.lastOpened || b.added) - (a.lastOpened || a.added));
   const grid = $('books');
   grid.innerHTML = '';
   $('lib-empty').style.display = books.length ? 'none' : 'block';
@@ -663,8 +686,9 @@ async function renderLibrary() {
     }));
     card.querySelector('.book-del').addEventListener('click', async e => {
       e.stopPropagation();
-      if (!confirm(`Удалить «${b.title}» с полки?`)) return;
-      await dbDelete(b.id);
+      if (!confirm(`Удалить «${b.title}» с полки (вместе с хайлайтами)?`)) return;
+      await dbDelete('books', b.id);
+      for (const n of await dbAll('notes')) if (n.bookId === b.id) await dbDelete('notes', n.id);
       localStorage.removeItem(LS.pos(b.id));
       renderLibrary();
     });
@@ -767,7 +791,7 @@ async function importFile(file) {
     try { tmp.destroy(); } catch (e) {}
     step = 'сохранение';
     const id = 'b' + Math.abs(hashStr(file.name + ':' + file.size));
-    await dbPut({
+    await dbPut('books', {
       id, data, cover,
       title: meta.title || file.name.replace(/\.epub$/i, ''),
       author: meta.creator || '',
@@ -791,12 +815,12 @@ function blobUrlToDataUrl(url) {
 
 /* ════════════════════════ Reader ════════════════════════ */
 async function openBook(id) {
-  const rec = await dbGet(id);
+  const rec = await dbGet('books', id);
   if (!rec) { toast('Книга не найдена'); return; }
   currentBookId = id;
   currentMeta = { title: rec.title, author: rec.author };
   rec.lastOpened = Date.now();
-  dbPut(rec);
+  dbPut('books', rec);
 
   $('library').style.display = 'none';
   $('reader').classList.add('open');
@@ -840,6 +864,11 @@ async function openBook(id) {
   await withTimeout(rendition.display(savedCfi || undefined), 30000, 'отображение страницы');
   console.log('openBook: страница на экране ✓');
 
+  await loadNotes(id);
+  bookNotes.forEach(addHighlight);
+  renderNotesList();
+  switchTab('toc');
+
   book.loaded.navigation.then(nav => buildToc(nav.toc));
   book.opened.then(() => book.locations.generate(800)).then(() => {
     const loc = rendition.currentLocation();
@@ -870,7 +899,7 @@ function updateProgress(loc) {
   const ch = findChapter(loc.start.href);
   $('chapter-label').textContent = ch || '';
   markTocActive(loc.start.href);
-  if (currentBookId) dbGet(currentBookId).then(rec => { if (rec) { rec.progress = pct; dbPut(rec); } });
+  if (currentBookId) dbGet('books', currentBookId).then(rec => { if (rec) { rec.progress = pct; dbPut('books', rec); } });
 }
 
 let flatToc = [];
@@ -949,7 +978,7 @@ function onTextSelected(cfiRange, contents) {
     const text = (sel + '').trim().replace(/\s+/g, ' ');
     if (!text || text.length < 2) return;
     if (text.length > 2500) { toast('Слишком длинный фрагмент — выделите поменьше'); return; }
-    startLookup(text, getParagraphContext(sel, text));
+    startLookup(text, getParagraphContext(sel, text), cfiRange);
   }, 500);
 }
 
@@ -981,12 +1010,29 @@ function closePanel() {
   setTimeout(() => rendition && rendition.resize(), 320);
 }
 
-function startLookup(text, para) {
+function startLookup(text, para, cfiRange) {
   para = para || '';
   selGeneration++;
   const gen = selGeneration;
   if (translateAbort) translateAbort.abort();
   if (searchAbort) searchAbort.abort();
+
+  // сохраняем выделение как хайлайт
+  let note = null;
+  if (cfiRange && currentBookId) {
+    note = bookNotes.find(n => n.cfiRange === cfiRange);
+    if (!note) {
+      note = { id: 'n' + Date.now() + Math.random().toString(36).slice(2, 6), bookId: currentBookId,
+               cfiRange, created: Date.now(), translation: '', wikiHtml: '', webHtml: '', imgHtml: '' };
+      bookNotes.unshift(note);
+      addHighlight(note);
+    } else { // повторный запрос по тому же месту — очищаем старые ответы
+      note.translation = ''; note.wikiHtml = ''; note.webHtml = ''; note.imgHtml = '';
+    }
+    note.text = text; note.para = para; note.lang = settings.lang;
+    dbPut('notes', note);
+    renderNotesList();
+  }
 
   const body = $('panel-body');
   const words = text.split(/\s+/).length;
@@ -1005,23 +1051,30 @@ function startLookup(text, para) {
     return;
   }
 
-  translate(text, gen, words, para);
+  translate(text, gen, words, para, note);
 
   const mode = settings.search;
   const auto = mode === 'always' || (mode === 'auto' && words <= 6);
   const zone = $('ctx-zone');
   if (mode === 'off') return;
   if (auto) {
-    runContext(text, gen, para);
+    runContext(text, gen, para, note);
   } else {
     zone.innerHTML = `<div class="p-section-title">Из интернета</div>
       <button class="btn" id="ctx-btn">🔍 Поискать в интернете</button>`;
-    $('ctx-btn').addEventListener('click', () => runContext(text, gen, para));
+    $('ctx-btn').addEventListener('click', () => runContext(text, gen, para, note));
   }
 }
 
+function saveNotePart(note, field, value) {
+  if (!note) return;
+  note[field] = value;
+  dbPut('notes', note);
+  if (field === 'translation') renderNotesList();
+}
+
 /* ════════════════════════ OpenAI: translation (streaming) ════════════════════════ */
-async function translate(text, gen, words, para) {
+async function translate(text, gen, words, para, note) {
   translateAbort = new AbortController();
   const isShort = words <= 4;
   const sys = `You are an expert literary translator. Translate the text inside <text> tags into ${settings.lang}. Output ONLY the translation, no comments, tags or quotes.` + (isShort
@@ -1069,6 +1122,7 @@ async function translate(text, gen, words, para) {
         } catch (e) {}
       }
     }
+    if (gen === selGeneration) saveNotePart(note, 'translation', acc);
   } catch (err) {
     if (err.name === 'AbortError' || gen !== selGeneration) return;
     const out = $('trans-out');
@@ -1078,7 +1132,7 @@ async function translate(text, gen, words, para) {
 }
 
 /* ════════════════════════ Context: Wikipedia + OpenAI web search ════════════════════════ */
-function runContext(text, gen, para) {
+function runContext(text, gen, para, note) {
   const zone = $('ctx-zone');
   if (!zone || gen !== selGeneration) return;
   zone.innerHTML = `
@@ -1087,13 +1141,13 @@ function runContext(text, gen, para) {
     <div id="web-out" class="ctx-pending"><span class="spinner"></span>Ищу в интернете…</div>
     <div id="img-slot"></div>`;
   const words = text.split(/\s+/).length;
-  if (words <= 5) wikiLookup(text, gen);
-  if (words <= 8) imageSearch(text, gen);
-  webSearch(text, gen, para);
+  if (words <= 5) wikiLookup(text, gen, note);
+  if (words <= 8) imageSearch(text, gen, note);
+  webSearch(text, gen, para, note);
 }
 
 /* Поиск картинок на Викискладе — бесплатно, без ключа */
-async function imageSearch(term, gen) {
+async function imageSearch(term, gen, note) {
   try {
     const url = 'https://commons.wikimedia.org/w/api.php?action=query&format=json&origin=*'
       + '&generator=search&gsrnamespace=6&gsrlimit=8'
@@ -1117,10 +1171,11 @@ async function imageSearch(term, gen) {
           <img src="${esc(ii.thumburl)}" loading="lazy" alt=""></a>`;
       }).join('')}</div>
       <div class="img-credit">Викисклад · нажмите, чтобы открыть</div>`;
+    saveNotePart(note, 'imgHtml', slot.innerHTML);
   } catch (e) { console.warn('поиск картинок:', e); }
 }
 
-async function wikiLookup(term, gen) {
+async function wikiLookup(term, gen, note) {
   const langs = [...new Set([WIKI_LANGS[settings.lang] || 'en', 'en', 'ru'])];
   for (const lang of langs) {
     try {
@@ -1140,12 +1195,13 @@ async function wikiLookup(term, gen) {
             <a class="wc-link" href="${j.content_urls.desktop.page}" target="_blank" rel="noopener">Википедия →</a>
           </div>
         </div>`;
+      saveNotePart(note, 'wikiHtml', slot.innerHTML);
       return;
     } catch (e) { /* пробуем следующий язык */ }
   }
 }
 
-async function webSearch(text, gen, para) {
+async function webSearch(text, gen, para, note) {
   searchAbort = new AbortController();
   const langName = settings.lang;
   const prompt = `Search the web for information about: "${text}". It appears in the book "${currentMeta.title}"${currentMeta.author ? ' by ' + currentMeta.author : ''}.`
@@ -1187,11 +1243,96 @@ async function webSearch(text, gen, para) {
       }
     }
     out.innerHTML = mdLite(textOut) + (sources.length ? `<div class="sources">${sources.join('')}</div>` : '');
+    saveNotePart(note, 'webHtml', out.innerHTML);
   } catch (err) {
     if (err.name === 'AbortError' || gen !== selGeneration) return;
     const out = $('web-out');
     if (out) { out.className = ''; out.innerHTML = `<div class="p-error">Поиск не удался: ${esc(err.message)}</div>`; }
   }
+}
+
+/* ════════════════════════ Highlights (сохранённые выделения) ════════════════════════ */
+let bookNotes = []; // заметки открытой книги, новые сверху
+
+async function loadNotes(bookId) {
+  bookNotes = (await dbAll('notes')).filter(n => n.bookId === bookId).sort((a, b) => b.created - a.created);
+}
+function addHighlight(note) {
+  if (!rendition) return;
+  try {
+    rendition.annotations.add('highlight', note.cfiRange, {}, () => showNote(note.id), 'hl',
+      { 'fill': '#D97757', 'fill-opacity': '0.20', 'mix-blend-mode': 'multiply' });
+  } catch (e) { console.warn('highlight не добавился:', e); }
+}
+function removeHighlight(note) {
+  if (!rendition) return;
+  try { rendition.annotations.remove(note.cfiRange, 'highlight'); } catch (e) {}
+}
+
+function showNote(id) {
+  const note = bookNotes.find(n => n.id === id);
+  if (!note) return;
+  selGeneration++; // отменяем запросы текущего выделения
+  if (translateAbort) translateAbort.abort();
+  if (searchAbort) searchAbort.abort();
+  const hasCtx = note.wikiHtml || note.webHtml || note.imgHtml;
+  $('panel-body').innerHTML = `
+    <div class="sel-quote">${esc(note.text)}</div>
+    <div class="note-meta">🖍 сохранено ${new Date(note.created).toLocaleDateString()} · показано без запроса</div>
+    <div class="p-section-title">Перевод · ${esc(LANG_LABELS[note.lang] || note.lang || '')}</div>
+    <div id="trans-out">${esc(note.translation || '') || '<i>перевода нет</i>'}</div>
+    <div id="ctx-zone">
+      ${hasCtx ? '<div class="p-section-title">Из интернета</div>' : ''}
+      <div id="wiki-slot">${note.wikiHtml || ''}</div>
+      ${note.webHtml ? `<div id="web-out">${note.webHtml}</div>` : ''}
+      <div id="img-slot">${note.imgHtml || ''}</div>
+    </div>
+    <div class="note-actions">
+      <button class="btn" onclick="refreshNote('${note.id}')">↻ Спросить заново</button>
+      <button class="btn" onclick="deleteNote('${note.id}')">🗑 Удалить хайлайт</button>
+    </div>`;
+  openPanel();
+}
+function refreshNote(id) {
+  const n = bookNotes.find(x => x.id === id);
+  if (n) startLookup(n.text, n.para, n.cfiRange);
+}
+async function deleteNote(id) {
+  const i = bookNotes.findIndex(x => x.id === id);
+  if (i < 0) return;
+  removeHighlight(bookNotes[i]);
+  await dbDelete('notes', id);
+  bookNotes.splice(i, 1);
+  renderNotesList();
+  closePanel();
+}
+
+function renderNotesList() {
+  const list = $('notes-list');
+  if (!list) return;
+  if (!bookNotes.length) {
+    list.innerHTML = '<div class="notes-empty">Выделите текст в книге — хайлайт с переводом сохранится сюда.</div>';
+    return;
+  }
+  list.innerHTML = bookNotes.map(n => `
+    <div class="note-item" data-id="${n.id}">
+      <div class="ni-text">${esc(n.text.slice(0, 80))}${n.text.length > 80 ? '…' : ''}</div>
+      ${n.translation ? `<div class="ni-trans">${esc(n.translation.split('\n')[0].slice(0, 90))}</div>` : ''}
+    </div>`).join('');
+  list.querySelectorAll('.note-item').forEach(el => el.addEventListener('click', async () => {
+    const n = bookNotes.find(x => x.id === el.dataset.id);
+    if (!n) return;
+    toggleToc(false);
+    try { await rendition.display(n.cfiRange); } catch (e) { console.warn(e); }
+    showNote(n.id);
+  }));
+}
+
+function switchTab(tab) {
+  $('tab-toc').classList.toggle('active', tab === 'toc');
+  $('tab-notes').classList.toggle('active', tab === 'notes');
+  $('toc-list').style.display = tab === 'toc' ? '' : 'none';
+  $('notes-list').style.display = tab === 'notes' ? '' : 'none';
 }
 
 /* Мини-markdown: параграфы, **bold**, [текст](url) */
