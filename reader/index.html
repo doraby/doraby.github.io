@@ -286,7 +286,7 @@
     <div id="dropzone">
       <span class="dz-icon">📖</span>
       Перетащите сюда файл EPUB<br>или нажмите, чтобы выбрать
-      <input type="file" id="file-input" accept=".epub,application/epub+zip" hidden>
+      <input type="file" id="file-input" accept=".epub,application/epub+zip,application/zip,application/octet-stream" hidden>
     </div>
 
     <div class="shelf-title">Моя полка</div>
@@ -504,12 +504,14 @@ async function renderLibrary() {
 }
 
 async function importFile(file) {
-  if (!file || !/\.epub$/i.test(file.name) && file.type !== 'application/epub+zip') {
-    toast('Нужен файл .epub'); return;
-  }
+  if (!file) return;
   toast('Загружаю книгу…');
   try {
     const data = await file.arrayBuffer();
+    const head = new Uint8Array(data, 0, Math.min(2, data.byteLength));
+    if (head[0] !== 0x50 || head[1] !== 0x4B) { // zip-магия "PK" — любой EPUB это zip
+      toast('Это не похоже на EPUB: файл не является zip-архивом'); return;
+    }
     const tmp = ePub(data.slice(0));
     await tmp.ready;
     const meta = await tmp.loaded.metadata;
