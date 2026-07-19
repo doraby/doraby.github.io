@@ -312,7 +312,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver">v1.4</span></div>
+      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver">v1.5</span></div>
       <button class="icon-btn" onclick="openSettings()" title="Настройки" aria-label="Настройки">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -321,8 +321,8 @@
 
     <div id="dropzone">
       <span class="dz-icon">📖</span>
-      Перетащите сюда файл EPUB<br>или нажмите, чтобы выбрать
-      <input type="file" id="file-input" accept=".epub,application/epub+zip,application/zip,application/octet-stream" hidden>
+      Перетащите сюда файл EPUB (можно и в zip)<br>или нажмите, чтобы выбрать
+      <input type="file" id="file-input" accept=".epub,.zip,application/epub+zip,application/zip,application/octet-stream" hidden>
     </div>
 
     <div id="lib-error" class="banner error" style="display:none"></div>
@@ -389,7 +389,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Настройки <span class="app-ver">v1.4</span></h2>
+    <h2>Настройки <span class="app-ver">v1.5</span></h2>
     <div class="m-sub">Ключ хранится только в вашем браузере и отправляется только в OpenAI.</div>
     <div class="field">
       <label for="in-key">OpenAI API key</label>
@@ -513,7 +513,7 @@ console.log('Читалка v1.4 |', navigator.userAgent);
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '1.4'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '1.5'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 const LS = {
   key: 'reader.openaiKey',
@@ -679,6 +679,49 @@ function readFileBuffer(file) {
 function withTimeout(promise, ms, what) {
   return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' — не дождались ответа')), ms))]);
 }
+/* EPUB нередко приходит «матрёшкой»: zip, внутри которого лежит .epub
+   (macOS и браузеры любят так паковать скачанное), или zip с распакованной
+   книгой в подпапке. Приводим всё к нормальному EPUB-архиву. */
+async function normalizeEpubData(data, depth) {
+  depth = depth || 0;
+  let zip;
+  try {
+    zip = await withTimeout(JSZip.loadAsync(data.slice(0)), 20000, 'чтение zip');
+  } catch (e) {
+    console.error('zip не читается:', e);
+    return data; // пусть дальше падает с внятной ошибкой
+  }
+  const names = Object.keys(zip.files).filter(n => !n.startsWith('__MACOSX/') && !zip.files[n].dir);
+  console.log('zip: файлов', names.length, '| container.xml в корне:', !!zip.files['META-INF/container.xml']);
+  if (zip.files['META-INF/container.xml']) return data; // обычный EPUB
+
+  if (depth >= 3) throw new Error('слишком глубокая матрёшка из архивов');
+
+  // 1) внутри лежит сам файл .epub
+  const inner = names.find(n => /\.epub$/i.test(n));
+  if (inner) {
+    console.log('внутри архива найден', inner, '— распаковываю его');
+    const innerData = await zip.files[inner].async('arraybuffer');
+    return normalizeEpubData(innerData, depth + 1);
+  }
+
+  // 2) книга распакована в подпапку: ищем */META-INF/container.xml и убираем префикс
+  const cont = names.find(n => /(^|\/)META-INF\/container\.xml$/.test(n));
+  if (cont) {
+    const prefix = cont.slice(0, cont.length - 'META-INF/container.xml'.length);
+    console.log('книга лежит в папке "' + prefix + '" — пересобираю архив');
+    const out = new JSZip();
+    for (const n of names) {
+      if (!n.startsWith(prefix)) continue;
+      const rel = n.slice(prefix.length);
+      if (rel) out.file(rel, await zip.files[n].async('arraybuffer'));
+    }
+    return withTimeout(out.generateAsync({ type: 'arraybuffer' }), 30000, 'пересборка архива');
+  }
+
+  throw new Error('внутри архива не нашлось EPUB: нет META-INF/container.xml и нет файла .epub');
+}
+
 function libError(msg) {
   const el = $('lib-error');
   el.innerHTML = esc(msg) +
@@ -692,17 +735,14 @@ async function importFile(file) {
   toast('Открываю книгу…');
   let step = 'чтение файла';
   try {
-    const data = await readFileBuffer(file);
+    let data = await readFileBuffer(file);
     const head = new Uint8Array(data, 0, Math.min(2, data.byteLength));
     if (head[0] !== 0x50 || head[1] !== 0x4B) { // zip-магия "PK" — любой EPUB это zip
       libError('Файл не похож на EPUB: внутри нет zip-архива.'); return;
     }
     step = 'разбор EPUB';
     console.log('import: файл', file.name, file.size + ' байт, тип "' + (file.type || '—') + '"');
-    try { // независимая проверка архива, чтобы видеть в логе, где именно застревает
-      const zi = await withTimeout(JSZip.loadAsync(data.slice(0)), 15000, 'чтение zip');
-      console.log('zip ок: файлов', Object.keys(zi.files).length, '| container.xml:', !!zi.files['META-INF/container.xml']);
-    } catch (e) { console.error('zip не читается:', e); }
+    data = await normalizeEpubData(data);
     const tmp = ePub(data.slice(0));
     ['manifest', 'spine', 'metadata', 'cover', 'navigation', 'resources', 'displayOptions'].forEach(k => {
       const p = tmp.loaded && tmp.loaded[k];
