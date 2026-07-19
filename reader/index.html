@@ -318,7 +318,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver">v1.6</span></div>
+      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver">v1.7</span></div>
       <button class="icon-btn" onclick="openSettings()" title="Настройки" aria-label="Настройки">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -395,7 +395,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Настройки <span class="app-ver">v1.6</span></h2>
+    <h2>Настройки <span class="app-ver">v1.7</span></h2>
     <div class="m-sub">Ключ хранится только в вашем браузере и отправляется только в OpenAI.</div>
     <div class="field">
       <label for="in-key">OpenAI API key</label>
@@ -519,7 +519,7 @@ console.log('Читалка v1.4 |', navigator.userAgent);
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '1.6'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '1.7'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 const LS = {
   key: 'reader.openaiKey',
@@ -945,11 +945,30 @@ let selTimer = null;
 function onTextSelected(cfiRange, contents) {
   clearTimeout(selTimer);
   selTimer = setTimeout(() => {
-    const text = (contents.window.getSelection() + '').trim().replace(/\s+/g, ' ');
+    const sel = contents.window.getSelection();
+    const text = (sel + '').trim().replace(/\s+/g, ' ');
     if (!text || text.length < 2) return;
     if (text.length > 2500) { toast('Слишком длинный фрагмент — выделите поменьше'); return; }
-    startLookup(text);
+    startLookup(text, getParagraphContext(sel, text));
   }, 500);
+}
+
+/* Абзац вокруг выделения — контекст для перевода и веб-поиска, чтобы модель не гадала */
+function getParagraphContext(sel, text) {
+  try {
+    const node = sel.anchorNode || sel.getRangeAt(0).startContainer;
+    const el = node.nodeType === 1 ? node : node.parentElement;
+    const block = el.closest('p, li, blockquote, dd, dt, td, h1, h2, h3, h4') || el.closest('div') || el;
+    let txt = (block.innerText || block.textContent || '').replace(/\s+/g, ' ').trim();
+    if (txt.length > 900) { // обрезаем, стараясь сохранить окрестность выделения
+      const i = txt.indexOf(text.slice(0, 60));
+      const start = Math.max(0, (i < 0 ? 0 : i) - 350);
+      txt = (start > 0 ? '…' : '') + txt.substr(start, 900) + '…';
+    }
+    // если выделили весь абзац целиком — контекст ничего не добавляет
+    if (txt.length <= text.length + 20) return '';
+    return txt;
+  } catch (e) { return ''; }
 }
 
 function openPanel() { $('panel').classList.add('open'); document.body.classList.add('panel-open'); setTimeout(() => rendition && rendition.resize(), 320); }
@@ -962,7 +981,8 @@ function closePanel() {
   setTimeout(() => rendition && rendition.resize(), 320);
 }
 
-function startLookup(text) {
+function startLookup(text, para) {
+  para = para || '';
   selGeneration++;
   const gen = selGeneration;
   if (translateAbort) translateAbort.abort();
@@ -985,28 +1005,30 @@ function startLookup(text) {
     return;
   }
 
-  translate(text, gen, words);
+  translate(text, gen, words, para);
 
   const mode = settings.search;
   const auto = mode === 'always' || (mode === 'auto' && words <= 6);
   const zone = $('ctx-zone');
   if (mode === 'off') return;
   if (auto) {
-    runContext(text, gen);
+    runContext(text, gen, para);
   } else {
     zone.innerHTML = `<div class="p-section-title">Из интернета</div>
       <button class="btn" id="ctx-btn">🔍 Поискать в интернете</button>`;
-    $('ctx-btn').addEventListener('click', () => runContext(text, gen));
+    $('ctx-btn').addEventListener('click', () => runContext(text, gen, para));
   }
 }
 
 /* ════════════════════════ OpenAI: translation (streaming) ════════════════════════ */
-async function translate(text, gen, words) {
+async function translate(text, gen, words, para) {
   translateAbort = new AbortController();
   const isShort = words <= 4;
-  const sys = `You are an expert literary translator. Translate the user's text into ${settings.lang}. Output ONLY the translation, no comments or quotes.` + (isShort
-    ? ` Since the text is a single word or short phrase: first line — the best translation; then a new line in parentheses with the part of speech and 2–4 alternative meanings in ${settings.lang}, comma-separated.`
-    : ' Preserve the tone and style of the original.');
+  const sys = `You are an expert literary translator. Translate the text inside <text> tags into ${settings.lang}. Output ONLY the translation, no comments, tags or quotes.` + (isShort
+    ? ` Since the text is a single word or short phrase: first line — the best translation as used in this context; then a new line in parentheses with the part of speech and 2–4 alternative meanings in ${settings.lang}, comma-separated.`
+    : ' Preserve the tone and style of the original.')
+    + (para ? ' A <context> tag contains the surrounding paragraph — use it only to disambiguate meaning; never translate or mention it.' : '');
+  const userMsg = para ? `<text>${text}</text>\n<context>${para}</context>` : `<text>${text}</text>`;
   try {
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -1014,7 +1036,7 @@ async function translate(text, gen, words) {
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
       body: JSON.stringify({
         model: 'gpt-4o-mini', stream: true, temperature: 0.3,
-        messages: [{ role: 'system', content: sys }, { role: 'user', content: text }],
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: userMsg }],
       }),
     });
     if (!res.ok) {
@@ -1056,7 +1078,7 @@ async function translate(text, gen, words) {
 }
 
 /* ════════════════════════ Context: Wikipedia + OpenAI web search ════════════════════════ */
-function runContext(text, gen) {
+function runContext(text, gen, para) {
   const zone = $('ctx-zone');
   if (!zone || gen !== selGeneration) return;
   zone.innerHTML = `
@@ -1067,7 +1089,7 @@ function runContext(text, gen) {
   const words = text.split(/\s+/).length;
   if (words <= 5) wikiLookup(text, gen);
   if (words <= 8) imageSearch(text, gen);
-  webSearch(text, gen);
+  webSearch(text, gen, para);
 }
 
 /* Поиск картинок на Викискладе — бесплатно, без ключа */
@@ -1123,10 +1145,12 @@ async function wikiLookup(term, gen) {
   }
 }
 
-async function webSearch(text, gen) {
+async function webSearch(text, gen, para) {
   searchAbort = new AbortController();
   const langName = settings.lang;
-  const prompt = `Search the web for information about: "${text}". It appears in the book "${currentMeta.title}"${currentMeta.author ? ' by ' + currentMeta.author : ''}. In ${langName}, briefly explain (3-5 sentences) what or who this is and the most interesting facts about it. If it is a place, person, work of art or historical event — say so. Answer in ${langName} only.`;
+  const prompt = `Search the web for information about: "${text}". It appears in the book "${currentMeta.title}"${currentMeta.author ? ' by ' + currentMeta.author : ''}.`
+    + (para ? `\nHere is the paragraph where it appears — use it to identify what "${text}" actually refers to, and trust this context over guesses:\n"""${para}"""` : '')
+    + `\nIn ${langName}, briefly explain (3-5 sentences) what or who this is and the most interesting facts about it. If it is a place, person, work of art or historical event — say so. If the web results clearly do not match the meaning in the paragraph, say what it means in the book instead of forcing a match. Answer in ${langName} only.`;
   const call = toolType => fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     signal: searchAbort.signal,
