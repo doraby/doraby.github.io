@@ -66,6 +66,8 @@
   .lib-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
   .wordmark { font-size: 34px; font-weight: 600; letter-spacing: -0.01em; }
   .wordmark .tail { color: var(--accent); }
+  .app-ver { font-size: 12px; font-weight: 400; color: var(--muted); font-style: italic; letter-spacing: 0; vertical-align: 6px; }
+  .modal h2 .app-ver { vertical-align: 3px; }
   .lib-sub { color: var(--muted); font-style: italic; font-size: 15px; margin-bottom: 36px; }
 
   #dropzone {
@@ -276,7 +278,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Читалка<span class="tail">.</span></div>
+      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver"></span></div>
       <button class="icon-btn" onclick="openSettings()" title="Настройки" aria-label="Настройки">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -350,7 +352,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Настройки</h2>
+    <h2>Настройки <span class="app-ver"></span></h2>
     <div class="m-sub">Ключ хранится только в вашем браузере и отправляется только в OpenAI.</div>
     <div class="field">
       <label for="in-key">OpenAI API key</label>
@@ -399,6 +401,9 @@
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
+const APP_VERSION = '1.2'; // поднимать при каждом деплое
+document.querySelectorAll('.app-ver').forEach(el => el.textContent = 'v' + APP_VERSION);
+
 const LS = {
   key: 'reader.openaiKey',
   lang: 'reader.targetLang',
