@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Читалка</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📖</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
+<script src="vendor/jszip.min.js"></script>
+<script src="vendor/epub.min.js"></script>
+<style>
+  :root {
+    --bg: #F0EEE5;
+    --surface: #FAF9F4;
+    --surface-2: #E9E6DA;
+    --border: #DDD9C9;
+    --text: #3D3929;
+    --muted: #8A8778;
+    --accent: #C15F3C;
+    --accent-soft: #D97757;
+    --accent-bg: rgba(217, 119, 87, 0.10);
+    --shadow: 0 10px 40px rgba(61, 57, 41, 0.14);
+    --serif: 'Lora', Georgia, 'Times New Roman', serif;
+    --topbar-h: 56px;
+    --bottombar-h: 40px;
+    --panel-w: 400px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--serif);
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: var(--serif); color: inherit; }
+  ::selection { background: rgba(217, 119, 87, 0.30); }
+
+  .icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; border-radius: 10px;
+    border: none; background: transparent; cursor: pointer;
+    color: var(--muted); font-size: 17px; transition: background .15s, color .15s;
+    flex: none;
+  }
+  .icon-btn:hover { background: var(--surface-2); color: var(--text); }
+  .icon-btn svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 9px 18px; border-radius: 10px; border: 1px solid var(--border);
+    background: var(--surface); cursor: pointer; font-size: 14.5px;
+    transition: border-color .15s, background .15s, transform .05s;
+  }
+  .btn:hover { border-color: var(--accent-soft); }
+  .btn:active { transform: scale(0.98); }
+  .btn.primary { background: var(--accent-soft); border-color: var(--accent-soft); color: #fff; }
+  .btn.primary:hover { background: var(--accent); border-color: var(--accent); }
+
+  /* ───────────────── Library ───────────────── */
+  #library { height: 100%; overflow-y: auto; }
+  .lib-inner { max-width: 960px; margin: 0 auto; padding: 48px 32px 80px; }
+  .lib-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+  .wordmark { font-size: 34px; font-weight: 600; letter-spacing: -0.01em; }
+  .wordmark .tail { color: var(--accent); }
+  .lib-sub { color: var(--muted); font-style: italic; font-size: 15px; margin-bottom: 36px; }
+
+  #dropzone {
+    border: 1.5px dashed var(--border); border-radius: 16px;
+    padding: 42px 24px; text-align: center; cursor: pointer;
+    color: var(--muted); font-size: 15.5px; transition: border-color .2s, background .2s;
+    background: var(--surface); margin-bottom: 48px;
+  }
+  #dropzone:hover, #dropzone.drag { border-color: var(--accent-soft); background: var(--accent-bg); color: var(--accent); }
+  #dropzone .dz-icon { font-size: 28px; display: block; margin-bottom: 10px; }
+
+  .shelf-title { font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); margin-bottom: 20px; }
+  #books { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 28px 24px; }
+  .book-card { cursor: pointer; position: relative; }
+  .book-cover {
+    aspect-ratio: 2/3; border-radius: 8px; overflow: hidden; position: relative;
+    background: linear-gradient(160deg, #CB8552, #A14D2B);
+    box-shadow: 0 4px 14px rgba(61,57,41,.18), inset 4px 0 6px -4px rgba(255,255,255,.4);
+    transition: transform .18s, box-shadow .18s;
+  }
+  .book-card:hover .book-cover { transform: translateY(-4px); box-shadow: 0 12px 26px rgba(61,57,41,.24); }
+  .book-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .book-cover .gen-title {
+    position: absolute; inset: 0; padding: 18px 14px; color: #FBF5EC;
+    font-size: 15px; font-weight: 600; line-height: 1.35; font-style: italic;
+  }
+  .book-meta { margin-top: 10px; }
+  .book-title { font-size: 14px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .book-author { font-size: 12.5px; color: var(--muted); margin-top: 3px; font-style: italic; }
+  .book-progress { height: 3px; background: var(--surface-2); border-radius: 2px; margin-top: 8px; overflow: hidden; }
+  .book-progress i { display: block; height: 100%; background: var(--accent-soft); border-radius: 2px; }
+  .book-del {
+    position: absolute; top: 6px; right: 6px; width: 26px; height: 26px;
+    border-radius: 50%; border: none; background: rgba(40,35,25,.55); color: #fff;
+    font-size: 14px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s;
+    backdrop-filter: blur(4px);
+  }
+  .book-card:hover .book-del { opacity: 1; }
+  .book-del:hover { background: rgba(160,40,20,.8); }
+  #lib-empty { color: var(--muted); font-style: italic; font-size: 15px; }
+
+  /* ───────────────── Reader ───────────────── */
+  #reader { display: none; height: 100%; flex-direction: column; }
+  #reader.open { display: flex; }
+
+  #topbar {
+    height: var(--topbar-h); flex: none;
+    display: flex; align-items: center; gap: 6px; padding: 0 12px;
+    background: var(--surface); border-bottom: 1px solid var(--border);
+    z-index: 30;
+  }
+  #tb-title {
+    flex: 1; text-align: center; font-size: 15px; font-style: italic; color: var(--muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px;
+  }
+
+  #main { flex: 1; position: relative; display: flex; min-height: 0; }
+  #reading-col { flex: 1; position: relative; min-width: 0; display: flex; flex-direction: column; transition: margin-right .3s cubic-bezier(.4,0,.2,1); }
+  body.panel-open #reading-col { margin-right: var(--panel-w); }
+
+  #viewer-wrap { flex: 1; position: relative; min-height: 0; }
+  #viewer { position: absolute; inset: 12px 56px; max-width: 760px; margin: 0 auto; }
+  .nav-arrow {
+    position: absolute; top: 0; bottom: 0; width: 52px; border: none; background: transparent;
+    cursor: pointer; color: transparent; font-size: 30px; z-index: 5; transition: color .15s;
+  }
+  #viewer-wrap:hover .nav-arrow { color: var(--border); }
+  .nav-arrow:hover { color: var(--accent-soft) !important; }
+  #nav-prev { left: 0; } #nav-next { right: 0; }
+
+  #bottombar {
+    height: var(--bottombar-h); flex: none; display: flex; align-items: center; gap: 14px;
+    padding: 0 20px; font-size: 12px; color: var(--muted);
+  }
+  #chapter-label { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic; }
+  #progress-track { width: 180px; height: 3px; background: var(--surface-2); border-radius: 2px; overflow: hidden; flex: none; }
+  #progress-fill { display: block; height: 100%; width: 0; background: var(--accent-soft); transition: width .3s; }
+  #percent-label { flex: none; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  #hint {
+    position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+    background: var(--text); color: var(--bg); font-size: 13px; font-style: italic;
+    padding: 8px 18px; border-radius: 100px; opacity: 0.92; z-index: 6;
+    pointer-events: none; transition: opacity .4s;
+  }
+  #hint.hide { opacity: 0; }
+
+  /* ───────────────── TOC drawer ───────────────── */
+  #toc {
+    position: fixed; top: 0; left: 0; bottom: 0; width: 320px; max-width: 85vw;
+    background: var(--surface); border-right: 1px solid var(--border);
+    transform: translateX(-100%); transition: transform .28s cubic-bezier(.4,0,.2,1);
+    z-index: 60; display: flex; flex-direction: column; box-shadow: none;
+  }
+  #toc.open { transform: none; box-shadow: var(--shadow); }
+  .toc-head { display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 10px; }
+  .toc-head h3 { font-size: 17px; font-weight: 600; }
+  #toc-list { overflow-y: auto; padding: 6px 10px 24px; }
+  .toc-item {
+    display: block; width: 100%; text-align: left; border: none; background: none; cursor: pointer;
+    padding: 9px 12px; font-size: 14.5px; border-radius: 8px; line-height: 1.4; color: var(--text);
+  }
+  .toc-item:hover { background: var(--surface-2); }
+  .toc-item.sub { padding-left: 30px; font-size: 13.5px; color: var(--muted); }
+  .toc-item.active { color: var(--accent); font-weight: 600; }
+
+  /* ───────────────── Right panel ───────────────── */
+  #panel {
+    position: fixed; top: 0; right: 0; bottom: 0; width: var(--panel-w); max-width: 100vw;
+    background: var(--surface); border-left: 1px solid var(--border);
+    transform: translateX(100%); transition: transform .3s cubic-bezier(.4,0,.2,1);
+    z-index: 50; display: flex; flex-direction: column;
+  }
+  #panel.open { transform: none; }
+  .panel-head {
+    flex: none; display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 20px 12px;
+  }
+  .panel-head h3 { font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  #panel-body { flex: 1; overflow-y: auto; padding: 0 22px 40px; }
+
+  .sel-quote {
+    font-style: italic; font-size: 15.5px; line-height: 1.55; color: var(--text);
+    border-left: 3px solid var(--accent-soft); padding: 2px 0 2px 14px; margin-bottom: 22px;
+  }
+  .p-section-title { font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin: 26px 0 10px; }
+  .p-section-title:first-of-type { margin-top: 0; }
+  #trans-out { font-size: 16.5px; line-height: 1.65; white-space: pre-wrap; }
+  #trans-out.pending, .ctx-pending { color: var(--muted); font-style: italic; font-size: 14px; }
+  .p-error { color: #A03A20; font-size: 14px; line-height: 1.5; background: rgba(160,58,32,.08); border-radius: 10px; padding: 12px 14px; }
+  .p-error button { margin-top: 10px; }
+
+  .wiki-card {
+    border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+    background: var(--bg); margin-bottom: 16px;
+  }
+  .wiki-card img { width: 100%; max-height: 220px; object-fit: cover; display: block; }
+  .wiki-card .wc-body { padding: 13px 15px; }
+  .wiki-card .wc-title { font-weight: 600; font-size: 15px; margin-bottom: 5px; }
+  .wiki-card .wc-extract { font-size: 13.5px; line-height: 1.55; color: var(--text); }
+  .wiki-card a.wc-link { display: inline-block; margin-top: 8px; font-size: 12.5px; color: var(--accent); text-decoration: none; font-style: italic; }
+  .wiki-card a.wc-link:hover { text-decoration: underline; }
+
+  #web-out { font-size: 14.5px; line-height: 1.62; }
+  #web-out p { margin-bottom: 10px; }
+  #web-out a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(193,95,60,.3); }
+  #web-out a:hover { border-bottom-color: var(--accent); }
+  .sources { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+  .source-chip {
+    font-size: 11.5px; color: var(--muted); text-decoration: none;
+    border: 1px solid var(--border); border-radius: 100px; padding: 4px 11px;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    transition: border-color .15s, color .15s;
+  }
+  .source-chip:hover { border-color: var(--accent-soft); color: var(--accent); }
+
+  .spinner {
+    display: inline-block; width: 13px; height: 13px; border-radius: 50%;
+    border: 2px solid var(--surface-2); border-top-color: var(--accent-soft);
+    animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 8px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ───────────────── Modal ───────────────── */
+  #overlay {
+    position: fixed; inset: 0; background: rgba(61,57,41,.35); backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center; z-index: 100;
+  }
+  #overlay.open { display: flex; }
+  .modal {
+    width: 460px; max-width: calc(100vw - 32px); background: var(--surface);
+    border-radius: 18px; box-shadow: var(--shadow); padding: 28px 30px 26px;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal h2 { font-size: 21px; font-weight: 600; margin-bottom: 4px; }
+  .modal .m-sub { color: var(--muted); font-size: 13.5px; font-style: italic; margin-bottom: 22px; }
+  .field { margin-bottom: 18px; }
+  .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 7px; }
+  .field input, .field select {
+    width: 100%; padding: 10px 13px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--bg); font-family: var(--serif); font-size: 14.5px; color: var(--text); outline: none;
+    transition: border-color .15s;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent-soft); }
+  .field .note { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .key-row { position: relative; }
+  .key-row .eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+    background: var(--text); color: var(--bg); padding: 10px 22px; border-radius: 100px;
+    font-size: 14px; z-index: 200; transition: transform .3s; pointer-events: none;
+  }
+  #toast.show { transform: translateX(-50%); }
+
+  @media (max-width: 900px) {
+    body.panel-open #reading-col { margin-right: 0; }
+    #panel { width: 100vw; }
+    #viewer { inset: 0 34px; }
+    .lib-inner { padding: 32px 20px 60px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════ Library ════════ -->
+<div id="library">
+  <div class="lib-inner">
+    <div class="lib-header">
+      <div class="wordmark">Читалка<span class="tail">.</span></div>
+      <button class="icon-btn" onclick="openSettings()" title="Настройки" aria-label="Настройки">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+    <div class="lib-sub">Выделите слово или абзац во время чтения — и получите перевод и справку из интернета.</div>
+
+    <div id="dropzone">
+      <span class="dz-icon">📖</span>
+      Перетащите сюда файл EPUB<br>или нажмите, чтобы выбрать
+      <input type="file" id="file-input" accept=".epub,application/epub+zip" hidden>
+    </div>
+
+    <div class="shelf-title">Моя полка</div>
+    <div id="books"></div>
+    <div id="lib-empty" style="display:none">Пока пусто — загрузите первую книгу.</div>
+  </div>
+</div>
+
+<!-- ════════ Reader ════════ -->
+<div id="reader">
+  <div id="topbar">
+    <button class="icon-btn" onclick="backToLibrary()" title="К библиотеке" aria-label="Назад">
+      <svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+    </button>
+    <button class="icon-btn" onclick="toggleToc()" title="Оглавление" aria-label="Оглавление">
+      <svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>
+    </button>
+    <div id="tb-title"></div>
+    <button class="icon-btn" style="font-size:13px" onclick="changeFontSize(-1)" title="Мельче">A−</button>
+    <button class="icon-btn" style="font-size:17px" onclick="changeFontSize(1)" title="Крупнее">A+</button>
+    <button class="icon-btn" onclick="openSettings()" title="Настройки" aria-label="Настройки">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </div>
+
+  <div id="main">
+    <div id="reading-col">
+      <div id="viewer-wrap">
+        <div id="viewer"></div>
+        <button id="nav-prev" class="nav-arrow" aria-label="Назад">‹</button>
+        <button id="nav-next" class="nav-arrow" aria-label="Вперёд">›</button>
+        <div id="hint">Выделите слово или фразу — появится перевод</div>
+      </div>
+      <div id="bottombar">
+        <span id="chapter-label"></span>
+        <span id="progress-track"><i id="progress-fill"></i></span>
+        <span id="percent-label"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ TOC drawer ════════ -->
+<div id="toc">
+  <div class="toc-head">
+    <h3>Оглавление</h3>
+    <button class="icon-btn" onclick="toggleToc()" aria-label="Закрыть">✕</button>
+  </div>
+  <div id="toc-list"></div>
+</div>
+
+<!-- ════════ Right panel ════════ -->
+<div id="panel">
+  <div class="panel-head">
+    <h3 id="panel-title">Перевод</h3>
+    <button class="icon-btn" onclick="closePanel()" aria-label="Закрыть">✕</button>
+  </div>
+  <div id="panel-body"></div>
+</div>
+
+<!-- ════════ Settings modal ════════ -->
+<div id="overlay">
+  <div class="modal">
+    <h2>Настройки</h2>
+    <div class="m-sub">Ключ хранится только в вашем браузере и отправляется только в OpenAI.</div>
+    <div class="field">
+      <label for="in-key">OpenAI API key</label>
+      <div class="key-row">
+        <input type="password" id="in-key" placeholder="sk-...">
+        <button class="icon-btn eye" onclick="toggleKeyVisibility()" title="Показать" aria-label="Показать ключ">
+          <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+      </div>
+      <div class="note">Создать ключ можно на <b>platform.openai.com/api-keys</b>. Позже здесь появится нормальная авторизация и подписка.</div>
+    </div>
+    <div class="field">
+      <label for="in-lang">Переводить на</label>
+      <select id="in-lang">
+        <option value="Russian">Русский</option>
+        <option value="English">English</option>
+        <option value="Ukrainian">Українська</option>
+        <option value="Spanish">Español</option>
+        <option value="German">Deutsch</option>
+        <option value="French">Français</option>
+        <option value="Italian">Italiano</option>
+        <option value="Portuguese">Português</option>
+        <option value="Polish">Polski</option>
+        <option value="Chinese">中文</option>
+        <option value="Japanese">日本語</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="in-search">Веб-поиск при выделении</label>
+      <select id="in-search">
+        <option value="auto">Автоматически для коротких фраз</option>
+        <option value="always">Всегда автоматически</option>
+        <option value="manual">Только по кнопке</option>
+        <option value="off">Выключен</option>
+      </select>
+      <div class="note">Поиск выполняется моделью OpenAI с инструментом web search, плюс карточка из Википедии с картинкой.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeSettings()">Отмена</button>
+      <button class="btn primary" onclick="saveSettings()">Сохранить</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ════════════════════════ State & settings ════════════════════════ */
+const LS = {
+  key: 'reader.openaiKey',
+  lang: 'reader.targetLang',
+  search: 'reader.searchMode',
+  fontSize: 'reader.fontSize',
+  pos: id => 'reader.pos.' + id,
+};
+const settings = {
+  get key() { return localStorage.getItem(LS.key) || ''; },
+  get lang() { return localStorage.getItem(LS.lang) || 'Russian'; },
+  get search() { return localStorage.getItem(LS.search) || 'auto'; },
+};
+const LANG_LABELS = { Russian: 'русский', English: 'английский', Ukrainian: 'украинский', Spanish: 'испанский', German: 'немецкий', French: 'французский', Italian: 'итальянский', Portuguese: 'португальский', Polish: 'польский', Chinese: 'китайский', Japanese: 'японский' };
+const WIKI_LANGS = { Russian: 'ru', English: 'en', Ukrainian: 'uk', Spanish: 'es', German: 'de', French: 'fr', Italian: 'it', Portuguese: 'pt', Polish: 'pl', Chinese: 'zh', Japanese: 'ja' };
+
+let book = null, rendition = null, currentBookId = null, currentMeta = {};
+let fontSize = parseInt(localStorage.getItem(LS.fontSize) || '18', 10);
+let selGeneration = 0;          // race guard for async lookups
+let translateAbort = null, searchAbort = null;
+let hintShown = false;
+
+const $ = id => document.getElementById(id);
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+function esc(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* ════════════════════════ IndexedDB library ════════════════════════ */
+function openDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open('reader-library', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('books', { keyPath: 'id' });
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+async function dbPut(record) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('books', 'readwrite');
+    tx.objectStore('books').put(record);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+async function dbAll() {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const req = db.transaction('books').objectStore('books').getAll();
+    req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
+  });
+}
+async function dbGet(id) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const req = db.transaction('books').objectStore('books').get(id);
+    req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
+  });
+}
+async function dbDelete(id) {
+  const db = await openDB();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('books', 'readwrite');
+    tx.objectStore('books').delete(id);
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+
+/* ════════════════════════ Library UI ════════════════════════ */
+async function renderLibrary() {
+  const books = (await dbAll()).sort((a, b) => (b.lastOpened || b.added) - (a.lastOpened || a.added));
+  const grid = $('books');
+  grid.innerHTML = '';
+  $('lib-empty').style.display = books.length ? 'none' : 'block';
+  for (const b of books) {
+    const card = document.createElement('div');
+    card.className = 'book-card';
+    const pct = Math.round((b.progress || 0) * 100);
+    card.innerHTML = `
+      <div class="book-cover">${b.cover
+        ? `<img src="${b.cover}" alt="">`
+        : `<div class="gen-title">${esc(b.title)}</div>`}</div>
+      <button class="book-del" title="Удалить">✕</button>
+      <div class="book-meta">
+        <div class="book-title">${esc(b.title)}</div>
+        <div class="book-author">${esc(b.author || '')}</div>
+        ${pct ? `<div class="book-progress"><i style="width:${pct}%"></i></div>` : ''}
+      </div>`;
+    card.addEventListener('click', () => openBook(b.id));
+    card.querySelector('.book-del').addEventListener('click', async e => {
+      e.stopPropagation();
+      if (!confirm(`Удалить «${b.title}» с полки?`)) return;
+      await dbDelete(b.id);
+      localStorage.removeItem(LS.pos(b.id));
+      renderLibrary();
+    });
+    grid.appendChild(card);
+  }
+}
+
+async function importFile(file) {
+  if (!file || !/\.epub$/i.test(file.name) && file.type !== 'application/epub+zip') {
+    toast('Нужен файл .epub'); return;
+  }
+  toast('Загружаю книгу…');
+  try {
+    const data = await file.arrayBuffer();
+    const tmp = ePub(data.slice(0));
+    await tmp.ready;
+    const meta = await tmp.loaded.metadata;
+    let cover = null;
+    try {
+      const url = await tmp.coverUrl();
+      if (url) cover = await blobUrlToDataUrl(url);
+    } catch (e) { /* обложки может не быть */ }
+    tmp.destroy();
+    const id = 'b' + Math.abs(hashStr(file.name + ':' + file.size));
+    await dbPut({
+      id, data, cover,
+      title: meta.title || file.name.replace(/\.epub$/i, ''),
+      author: meta.creator || '',
+      added: Date.now(), lastOpened: Date.now(), progress: 0,
+    });
+    await renderLibrary();
+    openBook(id);
+  } catch (err) {
+    console.error(err);
+    toast('Не получилось открыть этот EPUB');
+  }
+}
+function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i) | 0; } return h; }
+function blobUrlToDataUrl(url) {
+  return fetch(url).then(r => r.blob()).then(blob => new Promise(res => {
+    const fr = new FileReader(); fr.onload = () => res(fr.result); fr.readAsDataURL(blob);
+  }));
+}
+
+/* ════════════════════════ Reader ════════════════════════ */
+async function openBook(id) {
+  const rec = await dbGet(id);
+  if (!rec) { toast('Книга не найдена'); return; }
+  currentBookId = id;
+  currentMeta = { title: rec.title, author: rec.author };
+  rec.lastOpened = Date.now();
+  dbPut(rec);
+
+  $('library').style.display = 'none';
+  $('reader').classList.add('open');
+  $('tb-title').textContent = rec.title + (rec.author ? ' — ' + rec.author : '');
+
+  if (rendition) { try { rendition.destroy(); } catch (e) {} }
+  if (book) { try { book.destroy(); } catch (e) {} }
+  $('viewer').innerHTML = '';
+
+  book = ePub(rec.data.slice(0));
+  rendition = book.renderTo('viewer', {
+    width: '100%', height: '100%',
+    flow: 'paginated', spread: 'none',
+    allowScriptedContent: false,
+  });
+
+  rendition.themes.register('claude', {
+    'body': {
+      'font-family': "'Lora', Georgia, serif !important",
+      'color': '#3D3929 !important',
+      'background': 'transparent !important',
+      'line-height': '1.7 !important',
+      'text-align': 'justify',
+      'hyphens': 'auto',
+      'padding': '0 4px',
+    },
+    'p, li, div, span, blockquote': { 'font-family': "'Lora', Georgia, serif !important", 'color': '#3D3929 !important' },
+    'h1, h2, h3, h4, h5': { 'font-family': "'Lora', Georgia, serif !important", 'color': '#3D3929 !important', 'font-weight': '600' },
+    'a': { 'color': '#C15F3C !important' },
+    'img': { 'max-width': '100% !important' },
+    '::selection': { 'background': 'rgba(217,119,87,0.35)' },
+  });
+  rendition.themes.select('claude');
+  rendition.themes.fontSize(fontSize + 'px');
+  rendition.hooks.content.register(contents => {
+    contents.addStylesheet('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap');
+  });
+
+  const savedCfi = localStorage.getItem(LS.pos(id));
+  await rendition.display(savedCfi || undefined);
+
+  book.loaded.navigation.then(nav => buildToc(nav.toc));
+  book.ready.then(() => book.locations.generate(800)).then(() => {
+    const loc = rendition.currentLocation();
+    if (loc && loc.start) updateProgress(loc);
+  });
+
+  rendition.on('relocated', loc => {
+    localStorage.setItem(LS.pos(id), loc.start.cfi);
+    updateProgress(loc);
+  });
+  rendition.on('selected', onTextSelected);
+  rendition.on('keyup', readerKeys);
+
+  if (!hintShown) {
+    hintShown = true;
+    $('hint').classList.remove('hide');
+    setTimeout(() => $('hint').classList.add('hide'), 6000);
+  }
+}
+
+function updateProgress(loc) {
+  let pct = 0;
+  if (book.locations && book.locations.length()) {
+    pct = book.locations.percentageFromCfi(loc.start.cfi) || 0;
+  }
+  $('progress-fill').style.width = (pct * 100).toFixed(1) + '%';
+  $('percent-label').textContent = Math.round(pct * 100) + '%';
+  const ch = findChapter(loc.start.href);
+  $('chapter-label').textContent = ch || '';
+  markTocActive(loc.start.href);
+  if (currentBookId) dbGet(currentBookId).then(rec => { if (rec) { rec.progress = pct; dbPut(rec); } });
+}
+
+let flatToc = [];
+function buildToc(items) {
+  flatToc = [];
+  const list = $('toc-list');
+  list.innerHTML = '';
+  const walk = (arr, depth) => {
+    for (const it of arr) {
+      flatToc.push({ href: it.href, label: it.label.trim() });
+      const btn = document.createElement('button');
+      btn.className = 'toc-item' + (depth ? ' sub' : '');
+      btn.textContent = it.label.trim();
+      btn.dataset.href = it.href;
+      btn.addEventListener('click', () => { rendition.display(it.href); toggleToc(false); });
+      list.appendChild(btn);
+      if (it.subitems && it.subitems.length) walk(it.subitems, depth + 1);
+    }
+  };
+  walk(items, 0);
+}
+function findChapter(href) {
+  if (!href) return '';
+  const base = href.split('#')[0];
+  let found = '';
+  for (const it of flatToc) { if (it.href.split('#')[0] === base) { found = it.label; break; } }
+  return found;
+}
+function markTocActive(href) {
+  const base = (href || '').split('#')[0];
+  document.querySelectorAll('.toc-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.href.split('#')[0] === base);
+  });
+}
+
+function backToLibrary() {
+  closePanel();
+  toggleToc(false);
+  $('reader').classList.remove('open');
+  $('library').style.display = 'block';
+  renderLibrary();
+}
+
+function toggleToc(force) {
+  const el = $('toc');
+  const open = force !== undefined ? force : !el.classList.contains('open');
+  el.classList.toggle('open', open);
+}
+
+function changeFontSize(delta) {
+  fontSize = Math.min(30, Math.max(13, fontSize + delta));
+  localStorage.setItem(LS.fontSize, fontSize);
+  if (rendition) rendition.themes.fontSize(fontSize + 'px');
+}
+
+function readerKeys(e) {
+  if ((e.key === 'ArrowRight' || e.key === 'PageDown') && rendition) rendition.next();
+  if ((e.key === 'ArrowLeft' || e.key === 'PageUp') && rendition) rendition.prev();
+  if (e.key === 'Escape') { closePanel(); toggleToc(false); }
+}
+document.addEventListener('keyup', e => {
+  if (!$('reader').classList.contains('open')) return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  readerKeys(e);
+});
+$('nav-prev').addEventListener('click', () => rendition && rendition.prev());
+$('nav-next').addEventListener('click', () => rendition && rendition.next());
+window.addEventListener('resize', () => { if (rendition) try { rendition.resize(); } catch (e) {} });
+
+/* ════════════════════════ Selection → panel ════════════════════════ */
+let selTimer = null;
+function onTextSelected(cfiRange, contents) {
+  clearTimeout(selTimer);
+  selTimer = setTimeout(() => {
+    const text = (contents.window.getSelection() + '').trim().replace(/\s+/g, ' ');
+    if (!text || text.length < 2) return;
+    if (text.length > 2500) { toast('Слишком длинный фрагмент — выделите поменьше'); return; }
+    startLookup(text);
+  }, 500);
+}
+
+function openPanel() { $('panel').classList.add('open'); document.body.classList.add('panel-open'); setTimeout(() => rendition && rendition.resize(), 320); }
+function closePanel() {
+  if (!$('panel').classList.contains('open')) return;
+  $('panel').classList.remove('open');
+  document.body.classList.remove('panel-open');
+  if (translateAbort) translateAbort.abort();
+  if (searchAbort) searchAbort.abort();
+  setTimeout(() => rendition && rendition.resize(), 320);
+}
+
+function startLookup(text) {
+  selGeneration++;
+  const gen = selGeneration;
+  if (translateAbort) translateAbort.abort();
+  if (searchAbort) searchAbort.abort();
+
+  const body = $('panel-body');
+  const words = text.split(/\s+/).length;
+  body.innerHTML = `
+    <div class="sel-quote">${esc(text)}</div>
+    <div class="p-section-title">Перевод · ${esc(LANG_LABELS[settings.lang] || settings.lang)}</div>
+    <div id="trans-out" class="pending"><span class="spinner"></span>Перевожу…</div>
+    <div id="ctx-zone"></div>`;
+  openPanel();
+
+  if (!settings.key) {
+    $('trans-out').classList.remove('pending');
+    $('trans-out').className = '';
+    $('trans-out').outerHTML = `<div class="p-error">Чтобы переводить, добавьте свой OpenAI API-ключ.<br>
+      <button class="btn primary" onclick="openSettings()">Открыть настройки</button></div>`;
+    return;
+  }
+
+  translate(text, gen, words);
+
+  const mode = settings.search;
+  const auto = mode === 'always' || (mode === 'auto' && words <= 6);
+  const zone = $('ctx-zone');
+  if (mode === 'off') return;
+  if (auto) {
+    runContext(text, gen);
+  } else {
+    zone.innerHTML = `<div class="p-section-title">Из интернета</div>
+      <button class="btn" id="ctx-btn">🔍 Поискать в интернете</button>`;
+    $('ctx-btn').addEventListener('click', () => runContext(text, gen));
+  }
+}
+
+/* ════════════════════════ OpenAI: translation (streaming) ════════════════════════ */
+async function translate(text, gen, words) {
+  translateAbort = new AbortController();
+  const isShort = words <= 4;
+  const sys = `You are an expert literary translator. Translate the user's text into ${settings.lang}. Output ONLY the translation, no comments or quotes.` + (isShort
+    ? ` Since the text is a single word or short phrase: first line — the best translation; then a new line in parentheses with the part of speech and 2–4 alternative meanings in ${settings.lang}, comma-separated.`
+    : ' Preserve the tone and style of the original.');
+  try {
+    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      signal: translateAbort.signal,
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini', stream: true, temperature: 0.3,
+        messages: [{ role: 'system', content: sys }, { role: 'user', content: text }],
+      }),
+    });
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { msg = (await res.json()).error.message; } catch (e) {}
+      throw new Error(msg);
+    }
+    const out = $('trans-out');
+    out.classList.remove('pending');
+    out.textContent = '';
+    let acc = '';
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (gen !== selGeneration) return;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t.startsWith('data:')) continue;
+        const d = t.slice(5).trim();
+        if (d === '[DONE]') continue;
+        try {
+          const delta = JSON.parse(d).choices?.[0]?.delta?.content;
+          if (delta) { acc += delta; out.textContent = acc; }
+        } catch (e) {}
+      }
+    }
+  } catch (err) {
+    if (err.name === 'AbortError' || gen !== selGeneration) return;
+    const out = $('trans-out');
+    if (out) out.outerHTML = `<div class="p-error">Ошибка перевода: ${esc(err.message)}<br>
+      <button class="btn" onclick="openSettings()">Проверить ключ</button></div>`;
+  }
+}
+
+/* ════════════════════════ Context: Wikipedia + OpenAI web search ════════════════════════ */
+function runContext(text, gen) {
+  const zone = $('ctx-zone');
+  if (!zone || gen !== selGeneration) return;
+  zone.innerHTML = `
+    <div class="p-section-title">Из интернета</div>
+    <div id="wiki-slot"></div>
+    <div id="web-out" class="ctx-pending"><span class="spinner"></span>Ищу в интернете…</div>`;
+  if (text.split(/\s+/).length <= 5) wikiLookup(text, gen);
+  webSearch(text, gen);
+}
+
+async function wikiLookup(term, gen) {
+  const langs = [...new Set([WIKI_LANGS[settings.lang] || 'en', 'en', 'ru'])];
+  for (const lang of langs) {
+    try {
+      const res = await fetch(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(term)}?redirect=true`);
+      if (!res.ok) continue;
+      const j = await res.json();
+      if (j.type === 'disambiguation' || !j.extract) continue;
+      if (gen !== selGeneration) return;
+      const slot = $('wiki-slot');
+      if (!slot) return;
+      slot.innerHTML = `
+        <div class="wiki-card">
+          ${j.thumbnail ? `<img src="${j.thumbnail.source.replace(/\/\d+px-/, '/640px-')}" alt="" onerror="this.src='${j.thumbnail.source}'">` : ''}
+          <div class="wc-body">
+            <div class="wc-title">${esc(j.title)}</div>
+            <div class="wc-extract">${esc(j.extract)}</div>
+            <a class="wc-link" href="${j.content_urls.desktop.page}" target="_blank" rel="noopener">Википедия →</a>
+          </div>
+        </div>`;
+      return;
+    } catch (e) { /* пробуем следующий язык */ }
+  }
+}
+
+async function webSearch(text, gen) {
+  searchAbort = new AbortController();
+  const langName = settings.lang;
+  const prompt = `Search the web for information about: "${text}". It appears in the book "${currentMeta.title}"${currentMeta.author ? ' by ' + currentMeta.author : ''}. In ${langName}, briefly explain (3-5 sentences) what or who this is and the most interesting facts about it. If it is a place, person, work of art or historical event — say so. Answer in ${langName} only.`;
+  const call = toolType => fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    signal: searchAbort.signal,
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+    body: JSON.stringify({ model: 'gpt-4o-mini', tools: [{ type: toolType }], input: prompt }),
+  });
+  try {
+    let res = await call('web_search');
+    if (res.status === 400) res = await call('web_search_preview');
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { msg = (await res.json()).error.message; } catch (e) {}
+      throw new Error(msg);
+    }
+    const j = await res.json();
+    if (gen !== selGeneration) return;
+    let textOut = '', anns = [];
+    for (const item of j.output || []) {
+      if (item.type !== 'message') continue;
+      for (const c of item.content || []) {
+        if (c.type === 'output_text') { textOut += c.text; anns = anns.concat(c.annotations || []); }
+      }
+    }
+    const out = $('web-out');
+    if (!out) return;
+    out.className = '';
+    if (!textOut) { out.innerHTML = '<span class="ctx-pending">Ничего не нашлось.</span>'; return; }
+    const sources = [];
+    const seen = new Set();
+    for (const a of anns) {
+      if (a.type === 'url_citation' && a.url && !seen.has(a.url)) {
+        seen.add(a.url);
+        sources.push(`<a class="source-chip" href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title || new URL(a.url).hostname)}</a>`);
+      }
+    }
+    out.innerHTML = mdLite(textOut) + (sources.length ? `<div class="sources">${sources.join('')}</div>` : '');
+  } catch (err) {
+    if (err.name === 'AbortError' || gen !== selGeneration) return;
+    const out = $('web-out');
+    if (out) { out.className = ''; out.innerHTML = `<div class="p-error">Поиск не удался: ${esc(err.message)}</div>`; }
+  }
+}
+
+/* Мини-markdown: параграфы, **bold**, [текст](url) */
+function mdLite(src) {
+  let s = esc(src);
+  s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  return s.split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+}
+
+/* ════════════════════════ Settings ════════════════════════ */
+function openSettings() {
+  $('in-key').value = settings.key;
+  $('in-lang').value = settings.lang;
+  $('in-search').value = settings.search;
+  $('overlay').classList.add('open');
+}
+function closeSettings() { $('overlay').classList.remove('open'); }
+function saveSettings() {
+  localStorage.setItem(LS.key, $('in-key').value.trim());
+  localStorage.setItem(LS.lang, $('in-lang').value);
+  localStorage.setItem(LS.search, $('in-search').value);
+  closeSettings();
+  toast('Настройки сохранены');
+}
+function toggleKeyVisibility() {
+  const el = $('in-key');
+  el.type = el.type === 'password' ? 'text' : 'password';
+}
+$('overlay').addEventListener('click', e => { if (e.target === $('overlay')) closeSettings(); });
+
+/* ════════════════════════ File input / drag-n-drop ════════════════════════ */
+$('dropzone').addEventListener('click', () => $('file-input').click());
+$('file-input').addEventListener('change', e => { importFile(e.target.files[0]); e.target.value = ''; });
+['dragover', 'dragenter'].forEach(ev => document.addEventListener(ev, e => {
+  e.preventDefault();
+  if ($('library').style.display !== 'none') $('dropzone').classList.add('drag');
+}));
+['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => {
+  e.preventDefault();
+  $('dropzone').classList.remove('drag');
+}));
+document.addEventListener('drop', e => {
+  if ($('library').style.display === 'none') return;
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) importFile(f);
+});
+
+/* ════════════════════════ Init ════════════════════════ */
+renderLibrary();
+</script>
+</body>
+</html>
