@@ -260,7 +260,7 @@
   /* ───────────────── Modal ───────────────── */
   #overlay {
     position: fixed; inset: 0; background: rgba(61,57,41,.35); backdrop-filter: blur(2px);
-    display: none; align-items: center; justify-content: center; z-index: 100;
+    display: none; align-items: center; justify-content: center; z-index: 400;
   }
   #overlay.open { display: flex; }
   .modal {
@@ -317,13 +317,13 @@
   #auth-btn { font-size: 13.5px; padding: 7px 14px; }
   #auth-overlay {
     position: fixed; inset: 0; background: rgba(61,57,41,.35); backdrop-filter: blur(2px);
-    display: none; align-items: center; justify-content: center; z-index: 110;
+    display: none; align-items: center; justify-content: center; z-index: 410;
   }
   #auth-overlay.open { display: flex; }
 
   #pay-overlay {
     position: fixed; inset: 0; background: rgba(61,57,41,.35); backdrop-filter: blur(2px);
-    display: none; align-items: center; justify-content: center; z-index: 120;
+    display: none; align-items: center; justify-content: center; z-index: 420;
   }
   #pay-overlay.open { display: flex; }
   .pay-price { font-size: 44px; font-weight: 600; margin: 6px 0 14px; }
@@ -353,7 +353,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.3</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.4</span></div>
       <div class="lib-actions">
       <button id="auth-btn" class="btn" style="display:none" onclick="authClick()">Sign in</button>
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
@@ -470,11 +470,16 @@
       </ul>
       <div class="modal-actions">
         <button class="btn" onclick="closePaywall()">Not now</button>
-        <button class="btn primary" onclick="requestUpgrade()">Request access</button>
+        <button class="btn primary" id="pay-request" onclick="requestUpgrade()">Request access</button>
+        <button class="btn primary" id="pay-stripe" style="display:none" onclick="openStripeCheckout()">Upgrade — $10/month</button>
       </div>
     </div>
     <div id="pay-sent" style="display:none">
       <div class="banner warn" style="margin:0">✉️ Request sent! We'll get back to you by email shortly.</div>
+      <div class="modal-actions"><button class="btn" onclick="closePaywall()">Close</button></div>
+    </div>
+    <div id="pay-paid" style="display:none">
+      <div class="banner warn" style="margin:0">🎉 Finish the payment in the opened tab, then come back and keep highlighting — Pro activates automatically within a minute.</div>
       <div class="modal-actions"><button class="btn" onclick="closePaywall()">Close</button></div>
     </div>
   </div>
@@ -483,7 +488,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v2.3</span></h2>
+    <h2>Settings <span class="app-ver">v2.4</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div class="field">
       <label for="in-key">OpenAI API key (optional)</label>
@@ -566,11 +571,9 @@ function dbgPush(level, args) {
 });
 window.addEventListener('error', function (e) {
   dbgPush('error', [(e.message || 'error') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + e.lineno]);
-  try { toggleDbg(true); } catch (x) {}
 });
 window.addEventListener('unhandledrejection', function (e) {
   dbgPush('error', ['unhandledrejection:', e.reason]);
-  try { toggleDbg(true); } catch (x) {}
 });
 function renderDbg() {
   var out = document.getElementById('dbg-out');
@@ -602,18 +605,19 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v2.3 |', navigator.userAgent);
+console.log('Reymont v2.4 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '2.3'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '2.4'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
    Анонимный ключ публичен по дизайну; доступ к строкам ограничен RLS. */
 const SUPABASE_URL = 'https://onetabmtufauhulgjaxv.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_mRBZJDQylQ5nifnkbsDTCw_QKHNLtj8';
+const STRIPE_PAYMENT_LINK = '__STRIPE_PAYMENT_LINK__'; // ссылка buy.stripe.com — публичная
 let sb = null, sbUser = null;
 
 function cloudConfigured() {
@@ -673,7 +677,20 @@ function aiAvailable() { return !!settings.key || !!(sb && sbUser); }
 function showPaywall() {
   $('pay-offer').style.display = '';
   $('pay-sent').style.display = 'none';
+  $('pay-paid').style.display = 'none';
+  const stripeReady = !STRIPE_PAYMENT_LINK.startsWith('__');
+  $('pay-stripe').style.display = stripeReady ? '' : 'none';
+  $('pay-request').style.display = stripeReady ? 'none' : '';
   $('pay-overlay').classList.add('open');
+}
+function openStripeCheckout() {
+  // client_reference_id связывает оплату с пользователем — вебхук включит Pro
+  const u = STRIPE_PAYMENT_LINK + (STRIPE_PAYMENT_LINK.includes('?') ? '&' : '?')
+    + 'client_reference_id=' + encodeURIComponent(sbUser ? sbUser.id : '')
+    + '&prefilled_email=' + encodeURIComponent(sbUser && sbUser.email || '');
+  window.open(u, '_blank', 'noopener');
+  $('pay-offer').style.display = 'none';
+  $('pay-paid').style.display = '';
 }
 function closePaywall() { $('pay-overlay').classList.remove('open'); }
 async function requestUpgrade() {
