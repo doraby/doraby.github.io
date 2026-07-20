@@ -1,15 +1,16 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Читалка</title>
+<title>Reymont</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📖</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
 <script src="vendor/jszip.min.js"></script>
 <script src="vendor/epub.min.js"></script>
+<script src="vendor/supabase.min.js"></script>
 <style>
   :root {
     --bg: #F0EEE5;
@@ -312,6 +313,14 @@
   .dl-error { color: #FF9A7B; }
   .dl-warn { color: #E8C86B; }
 
+  .lib-actions { display: flex; align-items: center; gap: 10px; }
+  #auth-btn { font-size: 13.5px; padding: 7px 14px; }
+  #auth-overlay {
+    position: fixed; inset: 0; background: rgba(61,57,41,.35); backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center; z-index: 110;
+  }
+  #auth-overlay.open { display: flex; }
+
   #toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
     background: var(--text); color: var(--bg); padding: 10px 22px; border-radius: 100px;
@@ -333,41 +342,44 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Читалка<span class="tail">.</span> <span class="app-ver">v1.8</span></div>
-      <button class="icon-btn" onclick="openSettings()" title="Настройки" aria-label="Настройки">
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.0</span></div>
+      <div class="lib-actions">
+      <button id="auth-btn" class="btn" style="display:none" onclick="authClick()">Sign in</button>
+      <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
+      </div>
     </div>
-    <div class="lib-sub">Выделите слово или абзац во время чтения — и получите перевод и справку из интернета.</div>
+    <div class="lib-sub">Select a word or a paragraph while reading — you'll get a translation and context from the web.</div>
 
     <div id="dropzone">
       <span class="dz-icon">📖</span>
-      Перетащите сюда файл EPUB (можно и в zip)<br>или нажмите, чтобы выбрать
+      Drop an EPUB file here (zip works too)<br>or click to choose
       <input type="file" id="file-input" accept=".epub,.zip,application/epub+zip,application/zip,application/octet-stream" hidden>
     </div>
 
     <div id="lib-error" class="banner error" style="display:none"></div>
     <div id="lib-warn" class="banner warn" style="display:none"></div>
 
-    <div class="shelf-title">Моя полка</div>
+    <div class="shelf-title">My shelf</div>
     <div id="books"></div>
-    <div id="lib-empty" style="display:none">Пока пусто — загрузите первую книгу.</div>
+    <div id="lib-empty" style="display:none">Nothing here yet — add your first book.</div>
   </div>
 </div>
 
 <!-- ════════ Reader ════════ -->
 <div id="reader">
   <div id="topbar">
-    <button class="icon-btn" onclick="backToLibrary()" title="К библиотеке" aria-label="Назад">
+    <button class="icon-btn" onclick="backToLibrary()" title="Back to library" aria-label="Back to library">
       <svg viewBox="0 0 24 24"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
     </button>
-    <button class="icon-btn" onclick="toggleToc()" title="Оглавление" aria-label="Оглавление">
+    <button class="icon-btn" onclick="toggleToc()" title="Contents" aria-label="Contents">
       <svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>
     </button>
     <div id="tb-title"></div>
-    <button class="icon-btn" style="font-size:13px" onclick="changeFontSize(-1)" title="Мельче">A−</button>
-    <button class="icon-btn" style="font-size:17px" onclick="changeFontSize(1)" title="Крупнее">A+</button>
-    <button class="icon-btn" onclick="openSettings()" title="Настройки" aria-label="Настройки">
+    <button class="icon-btn" style="font-size:13px" onclick="changeFontSize(-1)" title="Smaller text">A−</button>
+    <button class="icon-btn" style="font-size:17px" onclick="changeFontSize(1)" title="Larger text">A+</button>
+    <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
   </div>
@@ -376,9 +388,9 @@
     <div id="reading-col">
       <div id="viewer-wrap">
         <div id="viewer"></div>
-        <button id="nav-prev" class="nav-arrow" aria-label="Назад">‹</button>
-        <button id="nav-next" class="nav-arrow" aria-label="Вперёд">›</button>
-        <div id="hint">Выделите слово или фразу — появится перевод</div>
+        <button id="nav-prev" class="nav-arrow" aria-label="Previous page">‹</button>
+        <button id="nav-next" class="nav-arrow" aria-label="Next page">›</button>
+        <div id="hint">Select a word or a phrase to get a translation</div>
       </div>
       <div id="bottombar">
         <span id="chapter-label"></span>
@@ -393,10 +405,10 @@
 <div id="toc">
   <div class="toc-head">
     <div class="toc-tabs">
-      <button id="tab-toc" class="tab active" onclick="switchTab('toc')">Оглавление</button>
-      <button id="tab-notes" class="tab" onclick="switchTab('notes')">🖍 Хайлайты</button>
+      <button id="tab-toc" class="tab active" onclick="switchTab('toc')">Contents</button>
+      <button id="tab-notes" class="tab" onclick="switchTab('notes')">🖍 Highlights</button>
     </div>
-    <button class="icon-btn" onclick="toggleToc()" aria-label="Закрыть">✕</button>
+    <button class="icon-btn" onclick="toggleToc()" aria-label="Close">✕</button>
   </div>
   <div id="toc-list"></div>
   <div id="notes-list" style="display:none"></div>
@@ -405,29 +417,51 @@
 <!-- ════════ Right panel ════════ -->
 <div id="panel">
   <div class="panel-head">
-    <h3 id="panel-title">Перевод</h3>
-    <button class="icon-btn" onclick="closePanel()" aria-label="Закрыть">✕</button>
+    <h3 id="panel-title">Translation</h3>
+    <button class="icon-btn" onclick="closePanel()" aria-label="Close">✕</button>
   </div>
   <div id="panel-body"></div>
+</div>
+
+<!-- ════════ Auth modal ════════ -->
+<div id="auth-overlay">
+  <div class="modal">
+    <h2>Sign in</h2>
+    <div class="m-sub">Your highlights will sync across devices. No password — we email you a magic link.</div>
+    <div id="auth-form">
+      <div class="field">
+        <label for="in-email">Email</label>
+        <input type="email" id="in-email" placeholder="you@example.com" autocomplete="email">
+      </div>
+      <div class="modal-actions">
+        <button class="btn" onclick="closeAuth()">Cancel</button>
+        <button class="btn primary" onclick="sendMagicLink()">Send magic link</button>
+      </div>
+    </div>
+    <div id="auth-sent" style="display:none">
+      <div class="banner warn" style="margin:0">📬 Check your inbox and open the link on this device. You can close this window.</div>
+      <div class="modal-actions"><button class="btn" onclick="closeAuth()">Close</button></div>
+    </div>
+  </div>
 </div>
 
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Настройки <span class="app-ver">v1.8</span></h2>
-    <div class="m-sub">Ключ хранится только в вашем браузере и отправляется только в OpenAI.</div>
+    <h2>Settings <span class="app-ver">v2.0</span></h2>
+    <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div class="field">
       <label for="in-key">OpenAI API key</label>
       <div class="key-row">
         <input type="password" id="in-key" placeholder="sk-...">
-        <button class="icon-btn eye" onclick="toggleKeyVisibility()" title="Показать" aria-label="Показать ключ">
+        <button class="icon-btn eye" onclick="toggleKeyVisibility()" title="Show" aria-label="Show key">
           <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
       </div>
-      <div class="note">Создать ключ можно на <b>platform.openai.com/api-keys</b>. Позже здесь появится нормальная авторизация и подписка.</div>
+      <div class="note">Create a key at <b>platform.openai.com/api-keys</b>. Proper sign-in and subscriptions are coming later.</div>
     </div>
     <div class="field">
-      <label for="in-lang">Переводить на</label>
+      <label for="in-lang">Translate into</label>
       <select id="in-lang">
         <option value="Russian">Русский</option>
         <option value="English">English</option>
@@ -443,18 +477,18 @@
       </select>
     </div>
     <div class="field">
-      <label for="in-search">Веб-поиск при выделении</label>
+      <label for="in-search">Web search on selection</label>
       <select id="in-search">
-        <option value="auto">Автоматически для коротких фраз</option>
-        <option value="always">Всегда автоматически</option>
-        <option value="manual">Только по кнопке</option>
-        <option value="off">Выключен</option>
+        <option value="auto">Automatically for short phrases</option>
+        <option value="always">Always automatically</option>
+        <option value="manual">Only on button press</option>
+        <option value="off">Off</option>
       </select>
-      <div class="note">Поиск выполняется моделью OpenAI с инструментом web search, плюс карточка из Википедии с картинкой.</div>
+      <div class="note">Search is performed by an OpenAI model with the web search tool, plus a Wikipedia card with a picture.</div>
     </div>
     <div class="modal-actions">
-      <button class="btn" onclick="closeSettings()">Отмена</button>
-      <button class="btn primary" onclick="saveSettings()">Сохранить</button>
+      <button class="btn" onclick="closeSettings()">Cancel</button>
+      <button class="btn primary" onclick="saveSettings()">Save</button>
     </div>
   </div>
 </div>
@@ -462,14 +496,14 @@
 <div id="toast"></div>
 
 <!-- ════════ Debug console ════════ -->
-<button id="dbg-fab" onclick="toggleDbg()" title="Debug-консоль">🐞</button>
+<button id="dbg-fab" onclick="toggleDbg()" title="Debug console">🐞</button>
 <div id="dbg">
   <div class="dbg-head">
-    <b>Debug-консоль</b>
+    <b>Debug console</b>
     <div class="dbg-actions">
-      <button class="dbg-btn" id="dbg-copy" onclick="copyDbg()">Скопировать</button>
-      <button class="dbg-btn" onclick="dlog.length=0;renderDbg()">Очистить</button>
-      <button class="dbg-btn" onclick="toggleDbg(false)">Закрыть</button>
+      <button class="dbg-btn" id="dbg-copy" onclick="copyDbg()">Copy</button>
+      <button class="dbg-btn" onclick="dlog.length=0;renderDbg()">Clear</button>
+      <button class="dbg-btn" onclick="toggleDbg(false)">Close</button>
     </div>
   </div>
   <div id="dbg-out"></div>
@@ -496,7 +530,7 @@ function dbgPush(level, args) {
   console[m] = function () { orig.apply(null, arguments); dbgPush(m, [].slice.call(arguments)); };
 });
 window.addEventListener('error', function (e) {
-  dbgPush('error', [(e.message || 'ошибка') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + e.lineno]);
+  dbgPush('error', [(e.message || 'error') + ' @ ' + String(e.filename || '').split('/').pop() + ':' + e.lineno]);
   try { toggleDbg(true); } catch (x) {}
 });
 window.addEventListener('unhandledrejection', function (e) {
@@ -509,7 +543,7 @@ function renderDbg() {
   out.innerHTML = dlog.map(function (l) {
     return '<div class="dl dl-' + l.level + '"><span>' + l.t + '</span> '
       + l.msg.replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }) + '</div>';
-  }).join('') || '<div class="dl">— лог пуст —</div>';
+  }).join('') || '<div class="dl">— log is empty —</div>';
   out.scrollTop = out.scrollHeight;
 }
 function toggleDbg(force) {
@@ -520,25 +554,119 @@ function toggleDbg(force) {
   if (open) renderDbg();
 }
 function copyDbg() {
-  var text = 'Читалка debug ' + new Date().toISOString() + '\n' + navigator.userAgent + '\n\n'
+  var text = 'Reymont debug ' + new Date().toISOString() + '\n' + navigator.userAgent + '\n\n'
     + dlog.map(function (l) { return l.t + ' [' + l.level + '] ' + l.msg; }).join('\n');
   var btn = document.getElementById('dbg-copy');
-  var done = function () { if (btn) { btn.textContent = 'Скопировано ✓'; setTimeout(function () { btn.textContent = 'Скопировать'; }, 2000); } };
+  var done = function () { if (btn) { btn.textContent = 'Copied ✓'; setTimeout(function () { btn.textContent = 'Copy'; }, 2000); } };
   var fallback = function () {
     var ta = document.createElement('textarea');
     ta.value = text; document.body.appendChild(ta); ta.select();
-    try { document.execCommand('copy'); done(); } catch (e) { alert('Скопируйте вручную:\n\n' + text.slice(0, 2000)); }
+    try { document.execCommand('copy'); done(); } catch (e) { alert('Copy manually:\n\n' + text.slice(0, 2000)); }
     ta.remove();
   };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Читалка v1.4 |', navigator.userAgent);
+console.log('Reymont v2.0 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '1.8'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '2.0'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+
+/* ════════════════════════ Cloud sync (Supabase) ════════════════════════
+   Авторизация по magic-ссылке + облачное хранение хайлайтов.
+   Анонимный ключ публичен по дизайну; доступ к строкам ограничен RLS. */
+const SUPABASE_URL = '__SUPABASE_URL__';
+const SUPABASE_ANON_KEY = '__SUPABASE_ANON_KEY__';
+let sb = null, sbUser = null;
+
+function cloudConfigured() {
+  return SUPABASE_URL.startsWith('https://') && !SUPABASE_ANON_KEY.startsWith('__');
+}
+async function initCloud() {
+  if (!cloudConfigured() || !window.supabase) return;
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const { data } = await sb.auth.getSession();
+  sbUser = data && data.session ? data.session.user : null;
+  sb.auth.onAuthStateChange((_ev, session) => {
+    const was = sbUser && sbUser.id;
+    sbUser = session ? session.user : null;
+    updateAuthUi();
+    if (sbUser && sbUser.id !== was) fullSync();
+  });
+  updateAuthUi();
+  if (sbUser) fullSync();
+}
+function updateAuthUi() {
+  const btn = $('auth-btn');
+  if (!btn) return;
+  if (!cloudConfigured()) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  btn.textContent = sbUser ? (sbUser.email + ' · sign out') : 'Sign in';
+}
+function authClick() {
+  if (!sbUser) { $('auth-form').style.display = ''; $('auth-sent').style.display = 'none'; $('auth-overlay').classList.add('open'); return; }
+  if (confirm('Sign out? Local highlights stay on this device.')) sb.auth.signOut();
+}
+function closeAuth() { $('auth-overlay').classList.remove('open'); }
+async function sendMagicLink() {
+  const email = $('in-email').value.trim();
+  if (!email || !email.includes('@')) { toast('Enter a valid email'); return; }
+  try {
+    const { error } = await sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin } });
+    if (error) throw error;
+    $('auth-form').style.display = 'none';
+    $('auth-sent').style.display = '';
+  } catch (e) { toast('Could not send the link: ' + (e.message || e)); }
+}
+
+function noteToRow(n) {
+  return { id: n.id, book_id: n.bookId, cfi_range: n.cfiRange, text: n.text, para: n.para,
+    lang: n.lang, translation: n.translation, wiki_html: n.wikiHtml, web_html: n.webHtml,
+    img_html: n.imgHtml, created: n.created, updated: n.updated || n.created };
+}
+function rowToNote(r) {
+  return { id: r.id, bookId: r.book_id, cfiRange: r.cfi_range, text: r.text, para: r.para,
+    lang: r.lang, translation: r.translation || '', wikiHtml: r.wiki_html || '', webHtml: r.web_html || '',
+    imgHtml: r.img_html || '', created: Number(r.created), updated: Number(r.updated || r.created) };
+}
+async function cloudUpsertNote(n) {
+  if (!sb || !sbUser) return;
+  try { const { error } = await sb.from('highlights').upsert(noteToRow(n)); if (error) throw error; }
+  catch (e) { console.warn('cloud upsert:', e.message || e); }
+}
+async function cloudDeleteNote(id) {
+  if (!sb || !sbUser) return;
+  try { const { error } = await sb.from('highlights').delete().eq('id', id); if (error) throw error; }
+  catch (e) { console.warn('cloud delete:', e.message || e); }
+}
+async function fullSync() {
+  if (!sb || !sbUser) return;
+  try {
+    const { data: remote, error } = await sb.from('highlights').select('*');
+    if (error) throw error;
+    const local = await dbAll('notes');
+    const lmap = new Map(local.map(n => [n.id, n]));
+    const rmap = new Map(remote.map(r => [r.id, r]));
+    let pushed = 0, pulled = 0;
+    for (const n of local) {
+      const r = rmap.get(n.id);
+      if (!r || (n.updated || n.created) > Number(r.updated || r.created)) { await cloudUpsertNote(n); pushed++; }
+    }
+    for (const r of remote) {
+      const l = lmap.get(r.id);
+      if (!l || Number(r.updated || r.created) > (l.updated || l.created)) { await dbPut('notes', rowToNote(r)); pulled++; }
+    }
+    console.log('sync: pushed', pushed, 'pulled', pulled);
+    if (pulled && currentBookId) {
+      await loadNotes(currentBookId);
+      bookNotes.forEach(addHighlight);
+      renderNotesList();
+    }
+    if (pushed || pulled) toast('Highlights synced ✓');
+  } catch (e) { console.warn('sync:', e.message || e); }
+}
 
 const LS = {
   key: 'reader.openaiKey',
@@ -552,7 +680,6 @@ const settings = {
   get lang() { return localStorage.getItem(LS.lang) || 'Russian'; },
   get search() { return localStorage.getItem(LS.search) || 'auto'; },
 };
-const LANG_LABELS = { Russian: 'русский', English: 'английский', Ukrainian: 'украинский', Spanish: 'испанский', German: 'немецкий', French: 'французский', Italian: 'итальянский', Portuguese: 'португальский', Polish: 'польский', Chinese: 'китайский', Japanese: 'японский' };
 const WIKI_LANGS = { Russian: 'ru', English: 'en', Ukrainian: 'uk', Spanish: 'es', German: 'de', French: 'fr', Italian: 'it', Portuguese: 'pt', Polish: 'pl', Chinese: 'zh', Japanese: 'ja' };
 
 let book = null, rendition = null, currentBookId = null, currentMeta = {};
@@ -582,10 +709,10 @@ let storageBroken = false;
 function storageFailed(err) {
   if (storageBroken) return;
   storageBroken = true;
-  console.error('IndexedDB недоступна:', err);
+  console.error('IndexedDB unavailable:', err);
   const el = $('lib-warn');
-  el.innerHTML = `⚠️ Браузер не даёт сохранять книги в хранилище (${esc(err && err.message || String(err))}).
-    Читать можно, но после закрытия вкладки полка очистится. Так бывает в приватном режиме — попробуйте обычное окно.`;
+  el.innerHTML = `⚠️ The browser refuses to store books (${esc(err && err.message || String(err))}).
+    Reading still works, but the shelf will be lost when this tab closes. This often happens in private mode — try a normal window.`;
   el.style.display = 'block';
 }
 
@@ -594,15 +721,15 @@ function openDB() {
   openDB._p = new Promise((res, rej) => {
     let req;
     try { req = indexedDB.open('reader-library', 2); } catch (e) { return rej(e); }
-    const to = setTimeout(() => rej(new Error('хранилище не отвечает')), 4000);
+    const to = setTimeout(() => rej(new Error('storage is not responding')), 4000);
     req.onupgradeneeded = () => {
       const db = req.result;
       if (!db.objectStoreNames.contains('books')) db.createObjectStore('books', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('notes')) db.createObjectStore('notes', { keyPath: 'id' });
     };
     req.onsuccess = () => { clearTimeout(to); res(req.result); };
-    req.onerror = () => { clearTimeout(to); rej(req.error || new Error('ошибка открытия хранилища')); };
-    req.onblocked = () => { clearTimeout(to); rej(new Error('хранилище заблокировано другой вкладкой')); };
+    req.onerror = () => { clearTimeout(to); rej(req.error || new Error('failed to open storage')); };
+    req.onblocked = () => { clearTimeout(to); rej(new Error('storage is locked by another tab')); };
   });
   openDB._p.catch(() => { openDB._p = null; });
   return openDB._p;
@@ -672,7 +799,7 @@ async function renderLibrary() {
       <div class="book-cover">${b.cover
         ? `<img src="${b.cover}" alt="">`
         : `<div class="gen-title">${esc(b.title)}</div>`}</div>
-      <button class="book-del" title="Удалить">✕</button>
+      <button class="book-del" title="Delete">✕</button>
       <div class="book-meta">
         <div class="book-title">${esc(b.title)}</div>
         <div class="book-author">${esc(b.author || '')}</div>
@@ -682,13 +809,13 @@ async function renderLibrary() {
       console.error(err);
       $('reader').classList.remove('open');
       $('library').style.display = 'block';
-      libError(`Не получилось открыть «${b.title}»: ${err && err.message || err}`);
+      libError(`Couldn’t open “${b.title}”: ${err && err.message || err}`);
     }));
     card.querySelector('.book-del').addEventListener('click', async e => {
       e.stopPropagation();
-      if (!confirm(`Удалить «${b.title}» с полки (вместе с хайлайтами)?`)) return;
+      if (!confirm(`Remove “${b.title}” from the shelf (with its highlights)?`)) return;
       await dbDelete('books', b.id);
-      for (const n of await dbAll('notes')) if (n.bookId === b.id) await dbDelete('notes', n.id);
+      for (const n of await dbAll('notes')) if (n.bookId === b.id) { await dbDelete('notes', n.id); cloudDeleteNote(n.id); }
       localStorage.removeItem(LS.pos(b.id));
       renderLibrary();
     });
@@ -702,12 +829,12 @@ function readFileBuffer(file) {
   return new Promise((res, rej) => {
     const fr = new FileReader();
     fr.onload = () => res(fr.result);
-    fr.onerror = () => rej(fr.error || new Error('не удалось прочитать файл'));
+    fr.onerror = () => rej(fr.error || new Error('failed to read the file'));
     fr.readAsArrayBuffer(file);
   });
 }
 function withTimeout(promise, ms, what) {
-  return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' — не дождались ответа')), ms))]);
+  return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' — timed out')), ms))]);
 }
 /* EPUB нередко приходит «матрёшкой»: zip, внутри которого лежит .epub
    (macOS и браузеры любят так паковать скачанное), или zip с распакованной
@@ -716,21 +843,21 @@ async function normalizeEpubData(data, depth) {
   depth = depth || 0;
   let zip;
   try {
-    zip = await withTimeout(JSZip.loadAsync(data.slice(0)), 20000, 'чтение zip');
+    zip = await withTimeout(JSZip.loadAsync(data.slice(0)), 20000, 'reading zip');
   } catch (e) {
-    console.error('zip не читается:', e);
+    console.error('zip unreadable:', e);
     return data; // пусть дальше падает с внятной ошибкой
   }
   const names = Object.keys(zip.files).filter(n => !n.startsWith('__MACOSX/') && !zip.files[n].dir);
-  console.log('zip: файлов', names.length, '| container.xml в корне:', !!zip.files['META-INF/container.xml']);
+  console.log('zip: files', names.length, '| container.xml at root:', !!zip.files['META-INF/container.xml']);
   if (zip.files['META-INF/container.xml']) return data; // обычный EPUB
 
-  if (depth >= 3) throw new Error('слишком глубокая матрёшка из архивов');
+  if (depth >= 3) throw new Error('too many nested archives');
 
   // 1) внутри лежит сам файл .epub
   const inner = names.find(n => /\.epub$/i.test(n));
   if (inner) {
-    console.log('внутри архива найден', inner, '— распаковываю его');
+    console.log('found inside the archive:', inner, '— unpacking it');
     const innerData = await zip.files[inner].async('arraybuffer');
     return normalizeEpubData(innerData, depth + 1);
   }
@@ -739,39 +866,39 @@ async function normalizeEpubData(data, depth) {
   const cont = names.find(n => /(^|\/)META-INF\/container\.xml$/.test(n));
   if (cont) {
     const prefix = cont.slice(0, cont.length - 'META-INF/container.xml'.length);
-    console.log('книга лежит в папке "' + prefix + '" — пересобираю архив');
+    console.log('book is inside folder "' + prefix + '" — rebuilding the archive');
     const out = new JSZip();
     for (const n of names) {
       if (!n.startsWith(prefix)) continue;
       const rel = n.slice(prefix.length);
       if (rel) out.file(rel, await zip.files[n].async('arraybuffer'));
     }
-    return withTimeout(out.generateAsync({ type: 'arraybuffer' }), 30000, 'пересборка архива');
+    return withTimeout(out.generateAsync({ type: 'arraybuffer' }), 30000, 'rebuilding the archive');
   }
 
-  throw new Error('внутри архива не нашлось EPUB: нет META-INF/container.xml и нет файла .epub');
+  throw new Error('no EPUB inside the archive: no META-INF/container.xml and no .epub file');
 }
 
 function libError(msg) {
   const el = $('lib-error');
   el.innerHTML = esc(msg) +
-    ' <button class="btn" style="margin-top:10px;display:block" onclick="toggleDbg(true)">🐞 Показать debug-лог</button>';
+    ' <button class="btn" style="margin-top:10px;display:block" onclick="toggleDbg(true)">🐞 Show debug log</button>';
   el.style.display = 'block';
 }
 
 async function importFile(file) {
   if (!file) return;
   $('lib-error').style.display = 'none';
-  toast('Открываю книгу…');
-  let step = 'чтение файла';
+  toast('Opening the book…');
+  let step = 'reading the file';
   try {
     let data = await readFileBuffer(file);
     const head = new Uint8Array(data, 0, Math.min(2, data.byteLength));
     if (head[0] !== 0x50 || head[1] !== 0x4B) { // zip-магия "PK" — любой EPUB это zip
-      libError('Файл не похож на EPUB: внутри нет zip-архива.'); return;
+      libError('This file doesn’t look like an EPUB: no zip archive inside.'); return;
     }
-    step = 'разбор EPUB';
-    console.log('import: файл', file.name, file.size + ' байт, тип "' + (file.type || '—') + '"');
+    step = 'parsing the EPUB';
+    console.log('import: file', file.name, file.size + ' bytes, type "' + (file.type || '—') + '"');
     data = await normalizeEpubData(data);
     const tmp = ePub(data.slice(0));
     ['manifest', 'spine', 'metadata', 'cover', 'navigation', 'resources', 'displayOptions'].forEach(k => {
@@ -781,15 +908,15 @@ async function importFile(file) {
     if (tmp.opened && tmp.opened.then) tmp.opened.then(() => console.log('opened ✓'), err => console.error('opened ✗', err));
     // Полный book.ready ждёт и необязательные части (напр. displayOptions), которые
     // в некоторых Chrome зависают навсегда. Для полки хватает архива и метаданных.
-    await withTimeout(tmp.opened, 20000, 'открытие архива книги');
-    const meta = await withTimeout(tmp.loaded.metadata, 20000, 'чтение метаданных');
+    await withTimeout(tmp.opened, 20000, 'opening the book archive');
+    const meta = await withTimeout(tmp.loaded.metadata, 20000, 'reading metadata');
     let cover = null;
     try {
-      const url = await withTimeout(tmp.coverUrl(), 10000, 'обложка');
+      const url = await withTimeout(tmp.coverUrl(), 10000, 'cover');
       if (url) cover = await blobUrlToDataUrl(url);
-    } catch (e) { console.warn('обложка не извлеклась:', e); }
+    } catch (e) { console.warn('cover extraction failed:', e); }
     try { tmp.destroy(); } catch (e) {}
-    step = 'сохранение';
+    step = 'saving';
     const id = 'b' + Math.abs(hashStr(file.name + ':' + file.size));
     await dbPut('books', {
       id, data, cover,
@@ -798,12 +925,12 @@ async function importFile(file) {
       added: Date.now(), lastOpened: Date.now(), progress: 0,
     });
     await renderLibrary();
-    step = 'открытие книги';
+    step = 'opening the book';
     await openBook(id);
   } catch (err) {
     console.error(err);
-    libError(`Не получилось открыть книгу (шаг: ${step}). ${err && err.name ? err.name + ': ' : ''}${err && err.message || err}`);
-    toast('Ошибка — подробности под полем загрузки');
+    libError(`Couldn’t open the book (step: ${step}). ${err && err.name ? err.name + ': ' : ''}${err && err.message || err}`);
+    toast('Error — details under the upload area');
   }
 }
 function hashStr(s) { let h = 0; for (let i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i) | 0; } return h; }
@@ -816,7 +943,7 @@ function blobUrlToDataUrl(url) {
 /* ════════════════════════ Reader ════════════════════════ */
 async function openBook(id) {
   const rec = await dbGet('books', id);
-  if (!rec) { toast('Книга не найдена'); return; }
+  if (!rec) { toast('Book not found'); return; }
   currentBookId = id;
   currentMeta = { title: rec.title, author: rec.author };
   rec.lastOpened = Date.now();
@@ -860,9 +987,9 @@ async function openBook(id) {
   });
 
   const savedCfi = localStorage.getItem(LS.pos(id));
-  console.log('openBook: рисую страницу…');
-  await withTimeout(rendition.display(savedCfi || undefined), 30000, 'отображение страницы');
-  console.log('openBook: страница на экране ✓');
+  console.log('openBook: rendering page…');
+  await withTimeout(rendition.display(savedCfi || undefined), 30000, 'rendering the page');
+  console.log('openBook: page on screen ✓');
 
   await loadNotes(id);
   bookNotes.forEach(addHighlight);
@@ -977,7 +1104,7 @@ function onTextSelected(cfiRange, contents) {
     const sel = contents.window.getSelection();
     const text = (sel + '').trim().replace(/\s+/g, ' ');
     if (!text || text.length < 2) return;
-    if (text.length > 2500) { toast('Слишком длинный фрагмент — выделите поменьше'); return; }
+    if (text.length > 2500) { toast('Selection is too long — try a smaller one'); return; }
     startLookup(text, getParagraphContext(sel, text), cfiRange);
   }, 500);
 }
@@ -1029,8 +1156,9 @@ function startLookup(text, para, cfiRange) {
     } else { // повторный запрос по тому же месту — очищаем старые ответы
       note.translation = ''; note.wikiHtml = ''; note.webHtml = ''; note.imgHtml = '';
     }
-    note.text = text; note.para = para; note.lang = settings.lang;
+    note.text = text; note.para = para; note.lang = settings.lang; note.updated = Date.now();
     dbPut('notes', note);
+    cloudUpsertNote(note);
     renderNotesList();
   }
 
@@ -1038,16 +1166,16 @@ function startLookup(text, para, cfiRange) {
   const words = text.split(/\s+/).length;
   body.innerHTML = `
     <div class="sel-quote">${esc(text)}</div>
-    <div class="p-section-title">Перевод · ${esc(LANG_LABELS[settings.lang] || settings.lang)}</div>
-    <div id="trans-out" class="pending"><span class="spinner"></span>Перевожу…</div>
+    <div class="p-section-title">Translation · ${esc(settings.lang)}</div>
+    <div id="trans-out" class="pending"><span class="spinner"></span>Translating…</div>
     <div id="ctx-zone"></div>`;
   openPanel();
 
   if (!settings.key) {
     $('trans-out').classList.remove('pending');
     $('trans-out').className = '';
-    $('trans-out').outerHTML = `<div class="p-error">Чтобы переводить, добавьте свой OpenAI API-ключ.<br>
-      <button class="btn primary" onclick="openSettings()">Открыть настройки</button></div>`;
+    $('trans-out').outerHTML = `<div class="p-error">Add your OpenAI API key to enable translation.<br>
+      <button class="btn primary" onclick="openSettings()">Open settings</button></div>`;
     return;
   }
 
@@ -1060,8 +1188,8 @@ function startLookup(text, para, cfiRange) {
   if (auto) {
     runContext(text, gen, para, note);
   } else {
-    zone.innerHTML = `<div class="p-section-title">Из интернета</div>
-      <button class="btn" id="ctx-btn">🔍 Поискать в интернете</button>`;
+    zone.innerHTML = `<div class="p-section-title">From the web</div>
+      <button class="btn" id="ctx-btn">🔍 Search the web</button>`;
     $('ctx-btn').addEventListener('click', () => runContext(text, gen, para, note));
   }
 }
@@ -1069,7 +1197,9 @@ function startLookup(text, para, cfiRange) {
 function saveNotePart(note, field, value) {
   if (!note) return;
   note[field] = value;
+  note.updated = Date.now();
   dbPut('notes', note);
+  cloudUpsertNote(note);
   if (field === 'translation') renderNotesList();
 }
 
@@ -1126,8 +1256,8 @@ async function translate(text, gen, words, para, note) {
   } catch (err) {
     if (err.name === 'AbortError' || gen !== selGeneration) return;
     const out = $('trans-out');
-    if (out) out.outerHTML = `<div class="p-error">Ошибка перевода: ${esc(err.message)}<br>
-      <button class="btn" onclick="openSettings()">Проверить ключ</button></div>`;
+    if (out) out.outerHTML = `<div class="p-error">Translation error: ${esc(err.message)}<br>
+      <button class="btn" onclick="openSettings()">Check the key</button></div>`;
   }
 }
 
@@ -1136,9 +1266,9 @@ function runContext(text, gen, para, note) {
   const zone = $('ctx-zone');
   if (!zone || gen !== selGeneration) return;
   zone.innerHTML = `
-    <div class="p-section-title">Из интернета</div>
+    <div class="p-section-title">From the web</div>
     <div id="wiki-slot"></div>
-    <div id="web-out" class="ctx-pending"><span class="spinner"></span>Ищу в интернете…</div>
+    <div id="web-out" class="ctx-pending"><span class="spinner"></span>Searching the web…</div>
     <div id="img-slot"></div>`;
   const words = text.split(/\s+/).length;
   if (words <= 5) wikiLookup(text, gen, note);
@@ -1164,15 +1294,15 @@ async function imageSearch(term, gen, note) {
     const slot = $('img-slot');
     if (!slot) return;
     slot.innerHTML = `
-      <div class="p-section-title">Картинки</div>
+      <div class="p-section-title">Images</div>
       <div class="img-grid">${pages.map(p => {
         const ii = p.imageinfo[0];
         return `<a href="${esc(ii.descriptionurl || ii.url)}" target="_blank" rel="noopener" title="${esc(p.title.replace(/^File:/, ''))}">
           <img src="${esc(ii.thumburl)}" loading="lazy" alt=""></a>`;
       }).join('')}</div>
-      <div class="img-credit">Викисклад · нажмите, чтобы открыть</div>`;
+      <div class="img-credit">Wikimedia Commons · click to open</div>`;
     saveNotePart(note, 'imgHtml', slot.innerHTML);
-  } catch (e) { console.warn('поиск картинок:', e); }
+  } catch (e) { console.warn('image search:', e); }
 }
 
 async function wikiLookup(term, gen, note) {
@@ -1192,7 +1322,7 @@ async function wikiLookup(term, gen, note) {
           <div class="wc-body">
             <div class="wc-title">${esc(j.title)}</div>
             <div class="wc-extract">${esc(j.extract)}</div>
-            <a class="wc-link" href="${j.content_urls.desktop.page}" target="_blank" rel="noopener">Википедия →</a>
+            <a class="wc-link" href="${j.content_urls.desktop.page}" target="_blank" rel="noopener">Wikipedia →</a>
           </div>
         </div>`;
       saveNotePart(note, 'wikiHtml', slot.innerHTML);
@@ -1233,7 +1363,7 @@ async function webSearch(text, gen, para, note) {
     const out = $('web-out');
     if (!out) return;
     out.className = '';
-    if (!textOut) { out.innerHTML = '<span class="ctx-pending">Ничего не нашлось.</span>'; return; }
+    if (!textOut) { out.innerHTML = '<span class="ctx-pending">Nothing found.</span>'; return; }
     const sources = [];
     const seen = new Set();
     for (const a of anns) {
@@ -1247,7 +1377,7 @@ async function webSearch(text, gen, para, note) {
   } catch (err) {
     if (err.name === 'AbortError' || gen !== selGeneration) return;
     const out = $('web-out');
-    if (out) { out.className = ''; out.innerHTML = `<div class="p-error">Поиск не удался: ${esc(err.message)}</div>`; }
+    if (out) { out.className = ''; out.innerHTML = `<div class="p-error">Search failed: ${esc(err.message)}</div>`; }
   }
 }
 
@@ -1262,7 +1392,7 @@ function addHighlight(note) {
   try {
     rendition.annotations.add('highlight', note.cfiRange, {}, () => showNote(note.id), 'hl',
       { 'fill': '#D97757', 'fill-opacity': '0.20', 'mix-blend-mode': 'multiply' });
-  } catch (e) { console.warn('highlight не добавился:', e); }
+  } catch (e) { console.warn('highlight failed to attach:', e); }
 }
 function removeHighlight(note) {
   if (!rendition) return;
@@ -1278,18 +1408,18 @@ function showNote(id) {
   const hasCtx = note.wikiHtml || note.webHtml || note.imgHtml;
   $('panel-body').innerHTML = `
     <div class="sel-quote">${esc(note.text)}</div>
-    <div class="note-meta">🖍 сохранено ${new Date(note.created).toLocaleDateString()} · показано без запроса</div>
-    <div class="p-section-title">Перевод · ${esc(LANG_LABELS[note.lang] || note.lang || '')}</div>
-    <div id="trans-out">${esc(note.translation || '') || '<i>перевода нет</i>'}</div>
+    <div class="note-meta">🖍 saved ${new Date(note.created).toLocaleDateString()} · shown from cache</div>
+    <div class="p-section-title">Translation · ${esc(note.lang || '')}</div>
+    <div id="trans-out">${esc(note.translation || '') || '<i>no translation</i>'}</div>
     <div id="ctx-zone">
-      ${hasCtx ? '<div class="p-section-title">Из интернета</div>' : ''}
+      ${hasCtx ? '<div class="p-section-title">From the web</div>' : ''}
       <div id="wiki-slot">${note.wikiHtml || ''}</div>
       ${note.webHtml ? `<div id="web-out">${note.webHtml}</div>` : ''}
       <div id="img-slot">${note.imgHtml || ''}</div>
     </div>
     <div class="note-actions">
-      <button class="btn" onclick="refreshNote('${note.id}')">↻ Спросить заново</button>
-      <button class="btn" onclick="deleteNote('${note.id}')">🗑 Удалить хайлайт</button>
+      <button class="btn" onclick="refreshNote('${note.id}')">↻ Ask again</button>
+      <button class="btn" onclick="deleteNote('${note.id}')">🗑 Delete highlight</button>
     </div>`;
   openPanel();
 }
@@ -1302,6 +1432,7 @@ async function deleteNote(id) {
   if (i < 0) return;
   removeHighlight(bookNotes[i]);
   await dbDelete('notes', id);
+  cloudDeleteNote(id);
   bookNotes.splice(i, 1);
   renderNotesList();
   closePanel();
@@ -1311,7 +1442,7 @@ function renderNotesList() {
   const list = $('notes-list');
   if (!list) return;
   if (!bookNotes.length) {
-    list.innerHTML = '<div class="notes-empty">Выделите текст в книге — хайлайт с переводом сохранится сюда.</div>';
+    list.innerHTML = '<div class="notes-empty">Select text in the book — highlights with translations will appear here.</div>';
     return;
   }
   list.innerHTML = bookNotes.map(n => `
@@ -1356,7 +1487,7 @@ function saveSettings() {
   localStorage.setItem(LS.lang, $('in-lang').value);
   localStorage.setItem(LS.search, $('in-search').value);
   closeSettings();
-  toast('Настройки сохранены');
+  toast('Settings saved');
 }
 function toggleKeyVisibility() {
   const el = $('in-key');
@@ -1383,6 +1514,7 @@ document.addEventListener('drop', e => {
 
 /* ════════════════════════ Init ════════════════════════ */
 renderLibrary();
+initCloud();
 </script>
 </body>
 </html>
