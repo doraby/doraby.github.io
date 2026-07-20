@@ -342,7 +342,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.1</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.2</span></div>
       <div class="lib-actions">
       <button id="auth-btn" class="btn" style="display:none" onclick="authClick()">Sign in</button>
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
@@ -448,17 +448,17 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v2.1</span></h2>
+    <h2>Settings <span class="app-ver">v2.2</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div class="field">
-      <label for="in-key">OpenAI API key</label>
+      <label for="in-key">OpenAI API key (optional)</label>
       <div class="key-row">
         <input type="password" id="in-key" placeholder="sk-...">
         <button class="icon-btn eye" onclick="toggleKeyVisibility()" title="Show" aria-label="Show key">
           <svg viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
         </button>
       </div>
-      <div class="note">Create a key at <b>platform.openai.com/api-keys</b>. Proper sign-in and subscriptions are coming later.</div>
+      <div class="note">Leave empty to use the built-in AI (requires sign-in). Or use your own key from <b>platform.openai.com/api-keys</b> — then requests go directly from your browser to OpenAI.</div>
     </div>
     <div class="field">
       <label for="in-lang">Translate into</label>
@@ -567,12 +567,12 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v2.1 |', navigator.userAgent);
+console.log('Reymont v2.2 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '2.1'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '2.2'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
@@ -620,6 +620,19 @@ async function sendMagicLink() {
     $('auth-sent').style.display = '';
   } catch (e) { toast('Could not send the link: ' + (e.message || e)); }
 }
+
+/* AI через Edge Function — ключ OpenAI живёт на сервере, вход обязателен */
+async function aiProxy(payload, signal) {
+  const { data } = await sb.auth.getSession();
+  if (!data || !data.session) throw new Error('Sign in required');
+  return fetch(SUPABASE_URL + '/functions/v1/ai', {
+    method: 'POST', signal,
+    headers: { 'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + data.session.access_token, 'apikey': SUPABASE_ANON_KEY },
+    body: JSON.stringify(payload),
+  });
+}
+function aiAvailable() { return !!settings.key || !!(sb && sbUser); }
 
 function noteToRow(n) {
   return { id: n.id, book_id: n.bookId, cfi_range: n.cfiRange, text: n.text, para: n.para,
@@ -1171,11 +1184,10 @@ function startLookup(text, para, cfiRange) {
     <div id="ctx-zone"></div>`;
   openPanel();
 
-  if (!settings.key) {
-    $('trans-out').classList.remove('pending');
-    $('trans-out').className = '';
-    $('trans-out').outerHTML = `<div class="p-error">Add your OpenAI API key to enable translation.<br>
-      <button class="btn primary" onclick="openSettings()">Open settings</button></div>`;
+  if (!aiAvailable()) {
+    $('trans-out').outerHTML = `<div class="p-error">Sign in to translate — it's free, no key needed. Or add your own OpenAI key in settings.<br>
+      ${cloudConfigured() ? '<button class="btn primary" onclick="authClick()">Sign in</button> ' : ''}
+      <button class="btn" onclick="openSettings()">Open settings</button></div>`;
     return;
   }
 
@@ -1207,21 +1219,26 @@ function saveNotePart(note, field, value) {
 async function translate(text, gen, words, para, note) {
   translateAbort = new AbortController();
   const isShort = words <= 4;
-  const sys = `You are an expert literary translator. Translate the text inside <text> tags into ${settings.lang}. Output ONLY the translation, no comments, tags or quotes.` + (isShort
-    ? ` Since the text is a single word or short phrase: first line — the best translation as used in this context; then a new line in parentheses with the part of speech and 2–4 alternative meanings in ${settings.lang}, comma-separated.`
-    : ' Preserve the tone and style of the original.')
-    + (para ? ' A <context> tag contains the surrounding paragraph — use it only to disambiguate meaning; never translate or mention it.' : '');
-  const userMsg = para ? `<text>${text}</text>\n<context>${para}</context>` : `<text>${text}</text>`;
   try {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      signal: translateAbort.signal,
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini', stream: true, temperature: 0.3,
-        messages: [{ role: 'system', content: sys }, { role: 'user', content: userMsg }],
-      }),
-    });
+    let res;
+    if (settings.key) {
+      const sys = `You are an expert literary translator. Translate the text inside <text> tags into ${settings.lang}. Output ONLY the translation, no comments, tags or quotes.` + (isShort
+        ? ` Since the text is a single word or short phrase: first line — the best translation as used in this context; then a new line in parentheses with the part of speech and 2–4 alternative meanings in ${settings.lang}, comma-separated.`
+        : ' Preserve the tone and style of the original.')
+        + (para ? ' A <context> tag contains the surrounding paragraph — use it only to disambiguate meaning; never translate or mention it.' : '');
+      const userMsg = para ? `<text>${text}</text>\n<context>${para}</context>` : `<text>${text}</text>`;
+      res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        signal: translateAbort.signal,
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + settings.key },
+        body: JSON.stringify({
+          model: 'gpt-4o-mini', stream: true, temperature: 0.3,
+          messages: [{ role: 'system', content: sys }, { role: 'user', content: userMsg }],
+        }),
+      });
+    } else {
+      res = await aiProxy({ action: 'translate', text, para, lang: settings.lang, short: isShort }, translateAbort.signal);
+    }
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
       try { msg = (await res.json()).error.message; } catch (e) {}
@@ -1344,8 +1361,13 @@ async function webSearch(text, gen, para, note) {
     body: JSON.stringify({ model: 'gpt-4o-mini', tools: [{ type: toolType }], input: prompt }),
   });
   try {
-    let res = await call('web_search');
-    if (res.status === 400) res = await call('web_search_preview');
+    let res;
+    if (settings.key) {
+      res = await call('web_search');
+      if (res.status === 400) res = await call('web_search_preview');
+    } else {
+      res = await aiProxy({ action: 'search', text, para, lang: langName, title: currentMeta.title, author: currentMeta.author }, searchAbort.signal);
+    }
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
       try { msg = (await res.json()).error.message; } catch (e) {}
