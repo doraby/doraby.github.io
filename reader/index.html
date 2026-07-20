@@ -321,6 +321,17 @@
   }
   #auth-overlay.open { display: flex; }
 
+  #pay-overlay {
+    position: fixed; inset: 0; background: rgba(61,57,41,.35); backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center; z-index: 120;
+  }
+  #pay-overlay.open { display: flex; }
+  .pay-price { font-size: 44px; font-weight: 600; margin: 6px 0 14px; }
+  .pay-price span { font-size: 17px; color: var(--muted); font-weight: 400; font-style: italic; }
+  .pay-list { list-style: none; margin: 0 0 6px; }
+  .pay-list li { padding: 7px 0; font-size: 15px; line-height: 1.45; border-bottom: 1px solid var(--surface-2); }
+  .pay-list li:last-child { border-bottom: none; }
+
   #toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
     background: var(--text); color: var(--bg); padding: 10px 22px; border-radius: 100px;
@@ -342,7 +353,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.2</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.3</span></div>
       <div class="lib-actions">
       <button id="auth-btn" class="btn" style="display:none" onclick="authClick()">Sign in</button>
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
@@ -445,10 +456,34 @@
   </div>
 </div>
 
+<!-- ════════ Paywall modal ════════ -->
+<div id="pay-overlay">
+  <div class="modal">
+    <h2>Reymont Pro</h2>
+    <div class="m-sub">You've used all 10 free highlights. Keep reading with Pro:</div>
+    <div id="pay-offer">
+      <div class="pay-price">$10<span>/month</span></div>
+      <ul class="pay-list">
+        <li>📚 3 hand-picked classic books, ready to read</li>
+        <li>🖍 Unlimited highlights with AI translation and web context</li>
+        <li>☁️ Sync across all your devices</li>
+      </ul>
+      <div class="modal-actions">
+        <button class="btn" onclick="closePaywall()">Not now</button>
+        <button class="btn primary" onclick="requestUpgrade()">Request access</button>
+      </div>
+    </div>
+    <div id="pay-sent" style="display:none">
+      <div class="banner warn" style="margin:0">✉️ Request sent! We'll get back to you by email shortly.</div>
+      <div class="modal-actions"><button class="btn" onclick="closePaywall()">Close</button></div>
+    </div>
+  </div>
+</div>
+
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v2.2</span></h2>
+    <h2>Settings <span class="app-ver">v2.3</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div class="field">
       <label for="in-key">OpenAI API key (optional)</label>
@@ -567,12 +602,12 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v2.2 |', navigator.userAgent);
+console.log('Reymont v2.3 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '2.2'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '2.3'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
@@ -633,6 +668,27 @@ async function aiProxy(payload, signal) {
   });
 }
 function aiAvailable() { return !!settings.key || !!(sb && sbUser); }
+
+/* Пейволл: сервер вернул 402 — бесплатные 10 хайлайтов закончились */
+function showPaywall() {
+  $('pay-offer').style.display = '';
+  $('pay-sent').style.display = 'none';
+  $('pay-overlay').classList.add('open');
+}
+function closePaywall() { $('pay-overlay').classList.remove('open'); }
+async function requestUpgrade() {
+  try {
+    const res = await aiProxy({ action: 'upgrade', message: 'Upgrade request from the paywall' });
+    if (!res.ok) { let m = 'HTTP ' + res.status; try { m = (await res.json()).error.message; } catch (e) {} throw new Error(m); }
+    $('pay-offer').style.display = 'none';
+    $('pay-sent').style.display = '';
+  } catch (e) { toast('Could not send the request: ' + (e.message || e)); }
+}
+function limitReachedNote(elId) {
+  const el = $(elId);
+  if (el) el.outerHTML = `<div class="p-error">Free plan limit reached — 10 highlights.
+    <button class="btn primary" style="margin-top:10px;display:block" onclick="showPaywall()">See Reymont Pro</button></div>`;
+}
 
 function noteToRow(n) {
   return { id: n.id, book_id: n.bookId, cfi_range: n.cfiRange, text: n.text, para: n.para,
@@ -1238,6 +1294,7 @@ async function translate(text, gen, words, para, note) {
       });
     } else {
       res = await aiProxy({ action: 'translate', text, para, lang: settings.lang, short: isShort }, translateAbort.signal);
+      if (res.status === 402) { limitReachedNote('trans-out'); showPaywall(); return; }
     }
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
@@ -1367,6 +1424,7 @@ async function webSearch(text, gen, para, note) {
       if (res.status === 400) res = await call('web_search_preview');
     } else {
       res = await aiProxy({ action: 'search', text, para, lang: langName, title: currentMeta.title, author: currentMeta.author }, searchAbort.signal);
+      if (res.status === 402) { const o = $('web-out'); if (o) o.remove(); return; }
     }
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
