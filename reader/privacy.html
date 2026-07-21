@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Reymont</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📖</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F0EEE5; --surface: #FAF9F4; --border: #DDD9C9;
+    --text: #3D3929; --muted: #8A8778; --accent: #C15F3C;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Lora', Georgia, serif; background: var(--bg); color: var(--text);
+    line-height: 1.7; -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 720px; margin: 0 auto; padding: 56px 24px 90px; }
+  .brand { font-size: 22px; font-weight: 600; margin-bottom: 40px; }
+  .brand a { color: var(--text); text-decoration: none; }
+  .brand span { color: var(--accent); }
+  h1 { font-size: 34px; font-weight: 600; letter-spacing: -0.01em; margin-bottom: 8px; }
+  .updated { color: var(--muted); font-style: italic; font-size: 14px; margin-bottom: 36px; }
+  h2 { font-size: 20px; font-weight: 600; margin: 34px 0 10px; }
+  p, li { font-size: 16px; margin-bottom: 10px; }
+  ul { padding-left: 22px; margin-bottom: 12px; }
+  a { color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 18px; font-size: 14.5px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12.5px; text-transform: uppercase; letter-spacing: .04em; }
+  .callout {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 16px 20px; margin: 14px 0;
+  }
+  footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 13.5px; font-style: italic; }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="brand"><a href="/">Reymont<span>.</span></a></div>
+  <h1>Privacy Policy</h1>
+  <div class="updated">Last updated: July 20, 2026</div>
+
+  <p>This page explains what Reymont stores, where it lives, and who it's shared with. The short
+  version: your books never leave your device, and the data we do collect is limited to what's
+  needed to run the app and process payments.</p>
+
+  <h2>1. What stays on your device — never uploaded</h2>
+  <div class="callout">
+    <p><b>Your EPUB files.</b> Books you add are stored in your browser's local database
+    (IndexedDB) and are never sent to our servers or anyone else's. Uninstalling the browser or
+    clearing site data removes them permanently — we cannot recover them.</p>
+    <p><b>Your own OpenAI key</b>, if you add one in settings. It is stored only in
+    localStorage on your device and is sent only to OpenAI, directly from your browser.</p>
+  </div>
+
+  <h2>2. What we store on our servers</h2>
+  <p>We use <a href="https://supabase.com" target="_blank" rel="noopener">Supabase</a> (EU-hosted
+  Postgres) for accounts and highlight sync. If you sign in, we store:</p>
+  <table>
+    <tr><th>Data</th><th>Why</th></tr>
+    <tr><td>Email address</td><td>Passwordless sign-in (magic link) and, if you're a Pro
+    subscriber, billing contact</td></tr>
+    <tr><td>Highlights: selected text, the surrounding paragraph, translation, and any
+    web/Wikipedia/image results</td><td>So a saved highlight opens instantly from cache on any
+    device you sign into</td></tr>
+    <tr><td>A book identifier (derived from the file name and size, not the file itself)</td>
+    <td>To match highlights to the right book across devices</td></tr>
+    <tr><td>Pro subscription status and Stripe customer ID</td><td>To unlock unlimited
+    highlights</td></tr>
+  </table>
+  <p>Each account can only read and write its own rows — enforced by database-level row security,
+  not just application code.</p>
+
+  <h2>3. Third parties we send data to</h2>
+  <table>
+    <tr><th>Service</th><th>What it receives</th><th>When</th></tr>
+    <tr><td>OpenAI</td><td>The text you select and its surrounding paragraph (for translation
+    and web search)</td><td>Every lookup, whether via our built-in AI or your own key</td></tr>
+    <tr><td>Wikipedia / Wikimedia Commons</td><td>The selected term, to fetch a summary card and
+    images</td><td>Short selections only</td></tr>
+    <tr><td>Supabase</td><td>Account and highlight data described above</td><td>If you sign
+    in</td></tr>
+    <tr><td>Stripe</td><td>Payment details, handled entirely by Stripe — we never see your card
+    number</td><td>If you subscribe to Reymont Pro</td></tr>
+  </table>
+  <p>We do not sell your data, run ads, or share it with anyone beyond what's needed to provide
+  the service above.</p>
+
+  <h2>4. Cookies and tracking</h2>
+  <p>We don't use advertising or analytics trackers. The only browser storage is functional:
+  IndexedDB for your books and highlights, and localStorage for settings and your Supabase login
+  session.</p>
+
+  <h2>5. Deleting your data</h2>
+  <p>Deleting a book or a highlight in the app removes it from your device immediately, and from
+  our servers if you're signed in. To delete your account and all associated highlights, contact
+  us through the request form in the app — we'll confirm once it's done.</p>
+
+  <h2>6. Children</h2>
+  <p>Reymont is not directed at children under 16. If you believe a child has created an account,
+  contact us and we'll remove it.</p>
+
+  <h2>7. Changes</h2>
+  <p>If this policy changes materially, we'll note the new date at the top of this page.</p>
+
+  <h2>8. Contact</h2>
+  <p>For any privacy question or data request, use the request form inside the app (Settings →
+  Sign in → Reymont Pro modal), or reach the operator described in our
+  <a href="/terms.html">Terms of Service</a>.</p>
+
+  <footer>
+    <a href="/">← Back to Reymont</a> · <a href="/terms.html">Terms of Service</a>
+  </footer>
+</div>
+</body>
+</html>

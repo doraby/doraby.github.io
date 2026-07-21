@@ -113,6 +113,11 @@
   .book-card:hover .book-del { opacity: 1; }
   .book-del:hover { background: rgba(160,40,20,.8); }
   #lib-empty { color: var(--muted); font-style: italic; font-size: 15px; }
+  .lib-footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border);
+    font-size: 12.5px; color: var(--muted); }
+  .lib-footer a { color: var(--muted); text-decoration: none; }
+  .lib-footer a:hover { color: var(--accent); text-decoration: underline; }
+  .lib-footer span { margin: 0 8px; }
 
   /* ───────────────── Reader ───────────────── */
   #reader { display: none; height: 100%; flex-direction: column; }
@@ -331,6 +336,8 @@
   .pay-list { list-style: none; margin: 0 0 6px; }
   .pay-list li { padding: 7px 0; font-size: 15px; line-height: 1.45; border-bottom: 1px solid var(--surface-2); }
   .pay-list li:last-child { border-bottom: none; }
+  .pay-fine { font-size: 12.5px; color: var(--muted); line-height: 1.55; margin: 14px 0 2px; }
+  .pay-fine a { color: var(--muted); text-decoration: underline; }
 
   #toast {
     position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
@@ -353,7 +360,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.4</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.5</span></div>
       <div class="lib-actions">
       <button id="auth-btn" class="btn" style="display:none" onclick="authClick()">Sign in</button>
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
@@ -375,6 +382,12 @@
     <div class="shelf-title">My shelf</div>
     <div id="books"></div>
     <div id="lib-empty" style="display:none">Nothing here yet — add your first book.</div>
+
+    <div class="lib-footer">
+      <a href="/terms.html" target="_blank" rel="noopener">Terms</a>
+      <span>·</span>
+      <a href="/privacy.html" target="_blank" rel="noopener">Privacy</a>
+    </div>
   </div>
 </div>
 
@@ -444,6 +457,8 @@
         <label for="in-email">Email</label>
         <input type="email" id="in-email" placeholder="you@example.com" autocomplete="email">
       </div>
+      <div class="pay-fine">By continuing you agree to the <a href="/terms.html" target="_blank">Terms</a>
+        and <a href="/privacy.html" target="_blank">Privacy Policy</a>.</div>
       <div class="modal-actions">
         <button class="btn" onclick="closeAuth()">Cancel</button>
         <button class="btn primary" onclick="sendMagicLink()">Send magic link</button>
@@ -468,6 +483,8 @@
         <li>🖍 Unlimited highlights with AI translation and web context</li>
         <li>☁️ Sync across all your devices</li>
       </ul>
+      <div class="pay-fine">Cancel anytime. Refunds: one per customer, for the most recent
+        payment only — see <a href="/terms.html#refunds" target="_blank">Terms</a>.</div>
       <div class="modal-actions">
         <button class="btn" onclick="closePaywall()">Not now</button>
         <button class="btn primary" id="pay-request" onclick="requestUpgrade()">Request access</button>
@@ -488,7 +505,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v2.4</span></h2>
+    <h2>Settings <span class="app-ver">v2.5</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div class="field">
       <label for="in-key">OpenAI API key (optional)</label>
@@ -605,19 +622,19 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v2.4 |', navigator.userAgent);
+console.log('Reymont v2.5 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '2.4'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '2.5'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
    Анонимный ключ публичен по дизайну; доступ к строкам ограничен RLS. */
 const SUPABASE_URL = 'https://onetabmtufauhulgjaxv.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_mRBZJDQylQ5nifnkbsDTCw_QKHNLtj8';
-const STRIPE_PAYMENT_LINK = '__STRIPE_PAYMENT_LINK__'; // ссылка buy.stripe.com — публичная
+const STRIPE_PAYMENT_LINK = 'https://buy.stripe.com/4gM4gzd3kezJ7xT4hLbwk00';
 let sb = null, sbUser = null;
 
 function cloudConfigured() {
