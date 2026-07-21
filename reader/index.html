@@ -319,7 +319,8 @@
   .dl-warn { color: #E8C86B; }
 
   .lib-actions { display: flex; align-items: center; gap: 10px; }
-  #auth-btn { font-size: 13.5px; padding: 7px 14px; }
+  .account-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .account-row span { font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   #auth-overlay {
     position: fixed; inset: 0; background: rgba(61,57,41,.35); backdrop-filter: blur(2px);
     display: none; align-items: center; justify-content: center; z-index: 410;
@@ -360,9 +361,8 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.5</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.6</span></div>
       <div class="lib-actions">
-      <button id="auth-btn" class="btn" style="display:none" onclick="authClick()">Sign in</button>
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
@@ -505,8 +505,21 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v2.5</span></h2>
+    <h2>Settings <span class="app-ver">v2.6</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
+    <div id="account-field" class="field" style="display:none">
+      <label>Account</label>
+      <div id="account-row" class="account-row">
+        <span id="account-email"></span>
+        <button class="btn" onclick="authClick()">Sign out</button>
+      </div>
+      <div class="note">Signed in — your highlights sync across devices, and built-in AI translation works without an OpenAI key.</div>
+    </div>
+    <div id="signin-field" class="field" style="display:none">
+      <label>Account</label>
+      <button class="btn" onclick="openSettings(true)">Sign in</button>
+      <div class="note">Free, no password — sync your highlights and use the built-in AI without an OpenAI key.</div>
+    </div>
     <div class="field">
       <label for="in-key">OpenAI API key (optional)</label>
       <div class="key-row">
@@ -622,12 +635,12 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v2.5 |', navigator.userAgent);
+console.log('Reymont v2.6 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '2.5'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '2.6'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
@@ -655,11 +668,12 @@ async function initCloud() {
   if (sbUser) fullSync();
 }
 function updateAuthUi() {
-  const btn = $('auth-btn');
-  if (!btn) return;
-  if (!cloudConfigured()) { btn.style.display = 'none'; return; }
-  btn.style.display = '';
-  btn.textContent = sbUser ? (sbUser.email + ' · sign out') : 'Sign in';
+  const acc = $('account-field'), signin = $('signin-field');
+  if (!acc || !signin) return;
+  if (!cloudConfigured()) { acc.style.display = 'none'; signin.style.display = 'none'; return; }
+  acc.style.display = sbUser ? '' : 'none';
+  signin.style.display = sbUser ? 'none' : '';
+  if (sbUser) $('account-email').textContent = sbUser.email;
 }
 function authClick() {
   if (!sbUser) { $('auth-form').style.display = ''; $('auth-sent').style.display = 'none'; $('auth-overlay').classList.add('open'); return; }
@@ -1589,11 +1603,12 @@ function mdLite(src) {
 }
 
 /* ════════════════════════ Settings ════════════════════════ */
-function openSettings() {
+function openSettings(openSignIn) {
   $('in-key').value = settings.key;
   $('in-lang').value = settings.lang;
   $('in-search').value = settings.search;
   $('overlay').classList.add('open');
+  if (openSignIn) authClick();
 }
 function closeSettings() { $('overlay').classList.remove('open'); }
 function saveSettings() {
