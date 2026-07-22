@@ -112,6 +112,15 @@
   }
   .book-card:hover .book-del { opacity: 1; }
   .book-del:hover { background: rgba(160,40,20,.8); }
+  .book-illus {
+    position: absolute; top: 6px; left: 6px; width: 26px; height: 26px;
+    border-radius: 50%; border: none; background: rgba(40,35,25,.55); color: #fff;
+    font-size: 13px; line-height: 1; cursor: pointer; opacity: 0; transition: opacity .15s;
+    backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center;
+  }
+  .book-card:hover .book-illus { opacity: 1; }
+  .book-illus:hover { background: rgba(193,95,60,.9); }
+  .book-illus.busy { opacity: 1; pointer-events: none; }
   #lib-empty { color: var(--muted); font-style: italic; font-size: 15px; }
   .lib-footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid var(--border);
     font-size: 12.5px; color: var(--muted); }
@@ -375,7 +384,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.8</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.9</span></div>
       <div class="lib-actions">
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -540,7 +549,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v2.8</span></h2>
+    <h2>Settings <span class="app-ver">v2.9</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div id="account-field" class="field" style="display:none">
       <label>Account</label>
@@ -670,12 +679,12 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v2.8 |', navigator.userAgent);
+console.log('Reymont v2.9 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '2.8'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '2.9'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
@@ -709,6 +718,7 @@ function updateAuthUi() {
   acc.style.display = sbUser ? '' : 'none';
   signin.style.display = sbUser ? 'none' : '';
   if (sbUser) $('account-email').textContent = sbUser.email;
+  if ($('library').style.display !== 'none') renderLibrary(); // покажет/скроет кнопку обложки
 }
 function authClick() {
   if (!sbUser) { $('auth-form').style.display = ''; $('auth-sent').style.display = 'none'; $('auth-overlay').classList.add('open'); return; }
@@ -951,7 +961,9 @@ async function renderLibrary() {
     card.innerHTML = `
       <div class="book-cover">${b.cover
         ? `<img src="${b.cover}" alt="">`
-        : `<div class="gen-title">${esc(b.title)}</div>`}</div>
+        : `<div class="gen-title">${esc(b.title)}</div>`}
+        ${sbUser ? `<button class="book-illus" title="Generate AI cover">🎨</button>` : ''}
+      </div>
       <button class="book-del" title="Delete">✕</button>
       <div class="book-meta">
         <div class="book-title">${esc(b.title)}</div>
@@ -972,6 +984,8 @@ async function renderLibrary() {
       localStorage.removeItem(LS.pos(b.id));
       renderLibrary();
     });
+    const illusBtn = card.querySelector('.book-illus');
+    if (illusBtn) illusBtn.addEventListener('click', e => { e.stopPropagation(); generateCover(b.id, illusBtn); });
     grid.appendChild(card);
   }
 }
@@ -1587,11 +1601,40 @@ async function requestIllustration(noteId) {
     }
     const j = await res.json();
     if (!j.b64) throw new Error('No image returned');
+    console.log('illustration: style refs used —', JSON.stringify(j.usedRefs || []));
     saveNotePart(note, 'illusDataUrl', 'data:image/png;base64,' + j.b64);
     if (zone) zone.innerHTML = illusZoneInner(note);
   } catch (err) {
     if (err.name === 'AbortError') return;
     if (zone) zone.innerHTML = `<div class="p-error">Illustration failed: ${esc(err.message)}</div>`;
+  }
+}
+
+/* Обложка книги — тот же пайплайн, без выделенного текста, только название/автор */
+async function generateCover(bookId, btn) {
+  if (!sbUser) { toast('Sign in to generate covers'); return; }
+  const rec = await dbGet('books', bookId);
+  if (!rec) return;
+  if (btn) { btn.classList.add('busy'); btn.textContent = '⏳'; }
+  try {
+    const res = await aiProxy({ action: 'illustrate_cover', title: rec.title, author: rec.author });
+    if (res.status === 403) { toast('Cover generation is invite-only right now'); return; }
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { msg = (await res.json()).error.message; } catch (e) {}
+      throw new Error(msg);
+    }
+    const j = await res.json();
+    if (!j.b64) throw new Error('No image returned');
+    console.log('cover: style refs used —', JSON.stringify(j.usedRefs || []));
+    rec.cover = 'data:image/png;base64,' + j.b64;
+    await dbPut('books', rec);
+    await renderLibrary();
+    toast('Cover updated ✓');
+  } catch (err) {
+    toast('Cover generation failed: ' + (err.message || err));
+  } finally {
+    if (btn) { btn.classList.remove('busy'); btn.textContent = '🎨'; }
   }
 }
 
