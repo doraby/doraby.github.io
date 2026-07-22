@@ -277,16 +277,24 @@
   .modal .m-sub { color: var(--muted); font-size: 13.5px; font-style: italic; margin-bottom: 22px; }
   .field { margin-bottom: 18px; }
   .field label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 7px; }
-  .field input, .field select {
+  .field input, .field select, .field textarea {
     width: 100%; padding: 10px 13px; border: 1px solid var(--border); border-radius: 10px;
     background: var(--bg); font-family: var(--serif); font-size: 14.5px; color: var(--text); outline: none;
     transition: border-color .15s;
   }
-  .field input:focus, .field select:focus { border-color: var(--accent-soft); }
+  .field textarea { resize: vertical; min-height: 70px; line-height: 1.5; }
+  .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent-soft); }
   .field .note { font-size: 12px; color: var(--muted); margin-top: 6px; line-height: 1.5; }
   .key-row { position: relative; }
   .key-row .eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); }
   .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; }
+
+  #prompt-overlay {
+    position: fixed; inset: 0; background: rgba(61,57,41,.35); backdrop-filter: blur(2px);
+    display: none; align-items: center; justify-content: center; z-index: 400;
+  }
+  #prompt-overlay.open { display: flex; }
+  #prompt-btn.active { color: var(--accent); background: var(--accent-bg); }
 
   /* ── Debug console ── */
   #dbg-fab {
@@ -361,7 +369,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.6</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.7</span></div>
       <div class="lib-actions">
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -403,6 +411,9 @@
     <div id="tb-title"></div>
     <button class="icon-btn" style="font-size:13px" onclick="changeFontSize(-1)" title="Smaller text">A−</button>
     <button class="icon-btn" style="font-size:17px" onclick="changeFontSize(1)" title="Larger text">A+</button>
+    <button id="prompt-btn" class="icon-btn" onclick="openPromptModal()" title="Reading focus" aria-label="Reading focus">
+      <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+    </button>
     <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
       <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -502,10 +513,28 @@
   </div>
 </div>
 
+<!-- ════════ Reading focus modal ════════ -->
+<div id="prompt-overlay">
+  <div class="modal">
+    <h2>Reading focus</h2>
+    <div class="m-sub">Extra instructions applied to every translation and web lookup — saved for this book only. Open a different book to set a different one.</div>
+    <div class="field">
+      <label for="in-prompt">Custom instructions (optional)</label>
+      <textarea id="in-prompt" rows="4" placeholder="E.g. Explain word etymology, list related words, and note whether usage is archaic, stylistic or modern."></textarea>
+      <div class="note">Sent along with the highlighted text and its surrounding paragraph — not a replacement for them.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" style="margin-right:auto" onclick="clearPrompt()">Clear</button>
+      <button class="btn" onclick="closePromptModal()">Cancel</button>
+      <button class="btn primary" onclick="savePrompt()">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v2.6</span></h2>
+    <h2>Settings <span class="app-ver">v2.7</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div id="account-field" class="field" style="display:none">
       <label>Account</label>
@@ -635,12 +664,12 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v2.6 |', navigator.userAgent);
+console.log('Reymont v2.7 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '2.6'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '2.7'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
@@ -799,7 +828,7 @@ const settings = {
 };
 const WIKI_LANGS = { Russian: 'ru', English: 'en', Ukrainian: 'uk', Spanish: 'es', German: 'de', French: 'fr', Italian: 'it', Portuguese: 'pt', Polish: 'pl', Chinese: 'zh', Japanese: 'ja' };
 
-let book = null, rendition = null, currentBookId = null, currentMeta = {};
+let book = null, rendition = null, currentBookId = null, currentMeta = {}, currentPrompt = '';
 let fontSize = parseInt(localStorage.getItem(LS.fontSize) || '18', 10);
 let selGeneration = 0;          // race guard for async lookups
 let translateAbort = null, searchAbort = null;
@@ -1063,6 +1092,8 @@ async function openBook(id) {
   if (!rec) { toast('Book not found'); return; }
   currentBookId = id;
   currentMeta = { title: rec.title, author: rec.author };
+  currentPrompt = rec.customPrompt || '';
+  updatePromptBadge();
   rec.lastOpened = Date.now();
   dbPut('books', rec);
 
@@ -1329,7 +1360,8 @@ async function translate(text, gen, words, para, note) {
       const sys = `You are an expert literary translator. Translate the text inside <text> tags into ${settings.lang}. Output ONLY the translation, no comments, tags or quotes.` + (isShort
         ? ` Since the text is a single word or short phrase: first line — the best translation as used in this context; then a new line in parentheses with the part of speech and 2–4 alternative meanings in ${settings.lang}, comma-separated.`
         : ' Preserve the tone and style of the original.')
-        + (para ? ' A <context> tag contains the surrounding paragraph — use it only to disambiguate meaning; never translate or mention it.' : '');
+        + (para ? ' A <context> tag contains the surrounding paragraph — use it only to disambiguate meaning; never translate or mention it.' : '')
+        + (currentPrompt ? ` The reader also set this standing instruction for this book, apply it every time after the translation, as extra lines starting with "— ": ${currentPrompt}` : '');
       const userMsg = para ? `<text>${text}</text>\n<context>${para}</context>` : `<text>${text}</text>`;
       res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -1341,7 +1373,7 @@ async function translate(text, gen, words, para, note) {
         }),
       });
     } else {
-      res = await aiProxy({ action: 'translate', text, para, lang: settings.lang, short: isShort }, translateAbort.signal);
+      res = await aiProxy({ action: 'translate', text, para, lang: settings.lang, short: isShort, extra: currentPrompt }, translateAbort.signal);
       if (res.status === 402) { limitReachedNote('trans-out'); showPaywall(); return; }
     }
     if (!res.ok) {
@@ -1458,7 +1490,8 @@ async function webSearch(text, gen, para, note) {
   const langName = settings.lang;
   const prompt = `Search the web for information about: "${text}". It appears in the book "${currentMeta.title}"${currentMeta.author ? ' by ' + currentMeta.author : ''}.`
     + (para ? `\nHere is the paragraph where it appears — use it to identify what "${text}" actually refers to, and trust this context over guesses:\n"""${para}"""` : '')
-    + `\nIn ${langName}, briefly explain (3-5 sentences) what or who this is and the most interesting facts about it. If it is a place, person, work of art or historical event — say so. If the web results clearly do not match the meaning in the paragraph, say what it means in the book instead of forcing a match. Answer in ${langName} only.`;
+    + `\nIn ${langName}, briefly explain (3-5 sentences) what or who this is and the most interesting facts about it. If it is a place, person, work of art or historical event — say so. If the web results clearly do not match the meaning in the paragraph, say what it means in the book instead of forcing a match. Answer in ${langName} only.`
+    + (currentPrompt ? `\nThe reader also set this standing instruction for this book, apply it every time when relevant: ${currentPrompt}` : '');
   const call = toolType => fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     signal: searchAbort.signal,
@@ -1471,7 +1504,7 @@ async function webSearch(text, gen, para, note) {
       res = await call('web_search');
       if (res.status === 400) res = await call('web_search_preview');
     } else {
-      res = await aiProxy({ action: 'search', text, para, lang: langName, title: currentMeta.title, author: currentMeta.author }, searchAbort.signal);
+      res = await aiProxy({ action: 'search', text, para, lang: langName, title: currentMeta.title, author: currentMeta.author, extra: currentPrompt }, searchAbort.signal);
       if (res.status === 402) { const o = $('web-out'); if (o) o.remove(); return; }
     }
     if (!res.ok) {
@@ -1600,6 +1633,36 @@ function mdLite(src) {
   s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
   s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
   return s.split(/\n{2,}/).map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`).join('');
+}
+
+/* ════════════════════════ Reading focus (per-book custom prompt) ════════════════════════ */
+function updatePromptBadge() {
+  const btn = $('prompt-btn');
+  if (btn) btn.classList.toggle('active', !!currentPrompt);
+}
+function openPromptModal() {
+  $('in-prompt').value = currentPrompt;
+  $('prompt-overlay').classList.add('open');
+}
+function closePromptModal() { $('prompt-overlay').classList.remove('open'); }
+async function savePrompt() {
+  currentPrompt = $('in-prompt').value.trim().slice(0, 500);
+  await persistPrompt();
+  closePromptModal();
+  toast(currentPrompt ? 'Reading focus saved for this book' : 'Reading focus cleared');
+}
+function clearPrompt() {
+  $('in-prompt').value = '';
+  currentPrompt = '';
+  persistPrompt();
+  closePromptModal();
+  toast('Reading focus cleared');
+}
+async function persistPrompt() {
+  updatePromptBadge();
+  if (!currentBookId) return;
+  const rec = await dbGet('books', currentBookId);
+  if (rec) { rec.customPrompt = currentPrompt; await dbPut('books', rec); }
 }
 
 /* ════════════════════════ Settings ════════════════════════ */
