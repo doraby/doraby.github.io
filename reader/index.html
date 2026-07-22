@@ -384,7 +384,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.9</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v3.0</span></div>
       <div class="lib-actions">
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -549,7 +549,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v2.9</span></h2>
+    <h2>Settings <span class="app-ver">v3.0</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div id="account-field" class="field" style="display:none">
       <label>Account</label>
@@ -679,12 +679,12 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v2.9 |', navigator.userAgent);
+console.log('Reymont v3.0 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '2.9'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '3.0'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
@@ -737,15 +737,36 @@ async function sendMagicLink() {
 }
 
 /* AI через Edge Function — ключ OpenAI живёт на сервере, вход обязателен */
-async function aiProxy(payload, signal) {
-  const { data } = await sb.auth.getSession();
-  if (!data || !data.session) throw new Error('Sign in required');
-  return fetch(SUPABASE_URL + '/functions/v1/ai', {
-    method: 'POST', signal,
-    headers: { 'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + data.session.access_token, 'apikey': SUPABASE_ANON_KEY },
-    body: JSON.stringify(payload),
-  });
+async function aiProxy(payload, signal, timeoutMs) {
+  timeoutMs = timeoutMs || 30000;
+  const t0 = Date.now();
+  console.log('aiProxy →', payload.action, '(timeout', timeoutMs + 'ms)');
+  console.log('aiProxy: getting Supabase session…');
+  const { data, error: sessErr } = await sb.auth.getSession();
+  if (sessErr) console.warn('aiProxy: getSession error:', sessErr.message || sessErr);
+  if (!data || !data.session) { console.warn('aiProxy: no session — aborting'); throw new Error('Sign in required'); }
+  console.log('aiProxy: session ok, sending request…');
+
+  // Собственный таймаут поверх переданного signal — чтобы зависший fetch не тонул молча
+  const timeoutCtrl = new AbortController();
+  const to = setTimeout(() => { console.warn('aiProxy: timed out after', timeoutMs + 'ms'); timeoutCtrl.abort(); }, timeoutMs);
+  if (signal) signal.addEventListener('abort', () => timeoutCtrl.abort());
+
+  try {
+    const res = await fetch(SUPABASE_URL + '/functions/v1/ai', {
+      method: 'POST', signal: timeoutCtrl.signal,
+      headers: { 'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + data.session.access_token, 'apikey': SUPABASE_ANON_KEY },
+      body: JSON.stringify(payload),
+    });
+    console.log('aiProxy ←', payload.action, 'HTTP', res.status, '(' + (Date.now() - t0) + 'ms)');
+    return res;
+  } catch (e) {
+    console.error('aiProxy: fetch failed for', payload.action, '—', e.name + ':', e.message, '(' + (Date.now() - t0) + 'ms)');
+    throw e;
+  } finally {
+    clearTimeout(to);
+  }
 }
 function aiAvailable() { return !!settings.key || !!(sb && sbUser); }
 
@@ -786,12 +807,12 @@ function limitReachedNote(elId) {
 function noteToRow(n) {
   return { id: n.id, book_id: n.bookId, cfi_range: n.cfiRange, text: n.text, para: n.para,
     lang: n.lang, translation: n.translation, wiki_html: n.wikiHtml, web_html: n.webHtml,
-    img_html: n.imgHtml, illustration: n.illusDataUrl, created: n.created, updated: n.updated || n.created };
+    img_html: n.imgHtml, illustration: n.illusUrl, created: n.created, updated: n.updated || n.created };
 }
 function rowToNote(r) {
   return { id: r.id, bookId: r.book_id, cfiRange: r.cfi_range, text: r.text, para: r.para,
     lang: r.lang, translation: r.translation || '', wikiHtml: r.wiki_html || '', webHtml: r.web_html || '',
-    imgHtml: r.img_html || '', illusDataUrl: r.illustration || '',
+    imgHtml: r.img_html || '', illusUrl: r.illustration || '',
     created: Number(r.created), updated: Number(r.updated || r.created) };
 }
 async function cloudUpsertNote(n) {
@@ -1319,7 +1340,7 @@ function startLookup(text, para, cfiRange) {
     note = bookNotes.find(n => n.cfiRange === cfiRange);
     if (!note) {
       note = { id: 'n' + Date.now() + Math.random().toString(36).slice(2, 6), bookId: currentBookId,
-               cfiRange, created: Date.now(), translation: '', wikiHtml: '', webHtml: '', imgHtml: '', illusDataUrl: '' };
+               cfiRange, created: Date.now(), translation: '', wikiHtml: '', webHtml: '', imgHtml: '', illusUrl: '' };
       bookNotes.unshift(note);
       addHighlight(note);
     } else { // повторный запрос по тому же месту — очищаем старые ответы (иллюстрация остаётся, она платная)
@@ -1395,7 +1416,7 @@ async function translate(text, gen, words, para, note) {
         }),
       });
     } else {
-      res = await aiProxy({ action: 'translate', text, para, lang: settings.lang, short: isShort, extra: currentPrompt }, translateAbort.signal);
+      res = await aiProxy({ action: 'translate', text, para, lang: settings.lang, short: isShort, extra: currentPrompt }, translateAbort.signal, 45000);
       if (res.status === 402) { limitReachedNote('trans-out'); showPaywall(); return; }
     }
     if (!res.ok) {
@@ -1526,7 +1547,7 @@ async function webSearch(text, gen, para, note) {
       res = await call('web_search');
       if (res.status === 400) res = await call('web_search_preview');
     } else {
-      res = await aiProxy({ action: 'search', text, para, lang: langName, title: currentMeta.title, author: currentMeta.author, extra: currentPrompt }, searchAbort.signal);
+      res = await aiProxy({ action: 'search', text, para, lang: langName, title: currentMeta.title, author: currentMeta.author, extra: currentPrompt }, searchAbort.signal, 45000);
       if (res.status === 402) { const o = $('web-out'); if (o) o.remove(); return; }
     }
     if (!res.ok) {
@@ -1569,8 +1590,8 @@ async function webSearch(text, gen, para, note) {
    по email. Кнопка показана всем вошедшим, сервер сам откажет, если не в списке. */
 function illusZoneInner(note) {
   if (!note) return '';
-  if (note.illusDataUrl) {
-    return `<div class="illus-card"><img src="${note.illusDataUrl}" alt=""></div>
+  if (note.illusUrl) {
+    return `<div class="illus-card"><img src="${note.illusUrl}" alt=""></div>
       <button class="btn" onclick="requestIllustration('${note.id}')">↻ Regenerate illustration</button>`;
   }
   return `<button class="btn" onclick="requestIllustration('${note.id}')">🎨 Illustrate this scene</button>`;
@@ -1580,58 +1601,72 @@ function illusSectionHtml(note) {
   return `<div class="p-section-title">Illustration</div><div id="illus-zone">${illusZoneInner(note)}</div>`;
 }
 async function requestIllustration(noteId) {
+  console.log('requestIllustration: start, noteId =', noteId);
   const note = bookNotes.find(n => n.id === noteId);
-  if (!note) return;
-  if (!sbUser) { toast('Sign in to generate illustrations'); return; }
+  if (!note) { console.warn('requestIllustration: note not found in bookNotes'); return; }
+  if (!sbUser) { console.warn('requestIllustration: not signed in'); toast('Sign in to generate illustrations'); return; }
   const zone = $('illus-zone');
+  if (!zone) console.warn('requestIllustration: #illus-zone not in DOM (panel closed/replaced?)');
   if (zone) zone.innerHTML = `<div class="ctx-pending"><span class="spinner"></span>Painting the scene… this can take up to a minute.</div>`;
   if (illustrateAbort) illustrateAbort.abort();
   illustrateAbort = new AbortController();
   try {
+    console.log('requestIllustration: calling aiProxy…');
     const res = await aiProxy({ action: 'illustrate', text: note.text, para: note.para,
-      title: currentMeta.title, author: currentMeta.author }, illustrateAbort.signal);
+      title: currentMeta.title, author: currentMeta.author, noteId: note.id }, illustrateAbort.signal, 120000);
     if (res.status === 403) {
+      console.warn('requestIllustration: 403 — not invited');
       if (zone) zone.innerHTML = `<div class="ctx-pending">🎨 Illustrations are invite-only right now.</div>`;
       return;
     }
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
-      try { msg = (await res.json()).error.message; } catch (e) {}
+      try { msg = (await res.json()).error.message; } catch (e) { console.warn('requestIllustration: could not parse error body:', e); }
+      console.error('requestIllustration: server error —', msg);
       throw new Error(msg);
     }
+    console.log('requestIllustration: parsing response JSON…');
     const j = await res.json();
-    if (!j.b64) throw new Error('No image returned');
-    console.log('illustration: style refs used —', JSON.stringify(j.usedRefs || []));
-    saveNotePart(note, 'illusDataUrl', 'data:image/png;base64,' + j.b64);
-    if (zone) zone.innerHTML = illusZoneInner(note);
+    if (!j.url) { console.error('requestIllustration: response had no url field:', JSON.stringify(j).slice(0, 300)); throw new Error('No image returned'); }
+    console.log('illustration: url =', j.url, '| style refs used —', JSON.stringify(j.usedRefs || []));
+    saveNotePart(note, 'illusUrl', j.url);
+    if (zone) { zone.innerHTML = illusZoneInner(note); console.log('requestIllustration: zone updated ✓'); }
+    else console.warn('requestIllustration: image generated but #illus-zone was gone — not shown, but saved to the highlight');
   } catch (err) {
-    if (err.name === 'AbortError') return;
+    if (err.name === 'AbortError') { console.warn('requestIllustration: aborted/timed out'); if (zone) zone.innerHTML = `<div class="p-error">Timed out — try again.<br><button class="btn" onclick="requestIllustration('${noteId}')">↻ Retry</button></div>`; return; }
+    console.error('requestIllustration: failed —', err.name + ':', err.message);
     if (zone) zone.innerHTML = `<div class="p-error">Illustration failed: ${esc(err.message)}</div>`;
   }
 }
 
 /* Обложка книги — тот же пайплайн, без выделенного текста, только название/автор */
 async function generateCover(bookId, btn) {
-  if (!sbUser) { toast('Sign in to generate covers'); return; }
+  console.log('generateCover: start, bookId =', bookId);
+  if (!sbUser) { console.warn('generateCover: not signed in'); toast('Sign in to generate covers'); return; }
   const rec = await dbGet('books', bookId);
-  if (!rec) return;
+  if (!rec) { console.warn('generateCover: book not found'); return; }
   if (btn) { btn.classList.add('busy'); btn.textContent = '⏳'; }
   try {
-    const res = await aiProxy({ action: 'illustrate_cover', title: rec.title, author: rec.author });
-    if (res.status === 403) { toast('Cover generation is invite-only right now'); return; }
+    console.log('generateCover: calling aiProxy for', rec.title);
+    const res = await aiProxy({ action: 'illustrate_cover', title: rec.title, author: rec.author, bookId }, undefined, 120000);
+    if (res.status === 403) { console.warn('generateCover: 403 — not invited'); toast('Cover generation is invite-only right now'); return; }
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
-      try { msg = (await res.json()).error.message; } catch (e) {}
+      try { msg = (await res.json()).error.message; } catch (e) { console.warn('generateCover: could not parse error body:', e); }
+      console.error('generateCover: server error —', msg);
       throw new Error(msg);
     }
+    console.log('generateCover: parsing response JSON…');
     const j = await res.json();
-    if (!j.b64) throw new Error('No image returned');
-    console.log('cover: style refs used —', JSON.stringify(j.usedRefs || []));
-    rec.cover = 'data:image/png;base64,' + j.b64;
+    if (!j.url) { console.error('generateCover: response had no url field:', JSON.stringify(j).slice(0, 300)); throw new Error('No image returned'); }
+    console.log('cover: url =', j.url, '| style refs used —', JSON.stringify(j.usedRefs || []));
+    rec.cover = j.url;
     await dbPut('books', rec);
     await renderLibrary();
+    console.log('generateCover: done ✓');
     toast('Cover updated ✓');
   } catch (err) {
+    console.error('generateCover: failed —', err.name + ':', err.message);
     toast('Cover generation failed: ' + (err.message || err));
   } finally {
     if (btn) { btn.classList.remove('busy'); btn.textContent = '🎨'; }
