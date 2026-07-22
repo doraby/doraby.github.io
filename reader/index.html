@@ -236,6 +236,12 @@
   .wiki-card a.wc-link { display: inline-block; margin-top: 8px; font-size: 12.5px; color: var(--accent); text-decoration: none; font-style: italic; }
   .wiki-card a.wc-link:hover { text-decoration: underline; }
 
+  .illus-card {
+    border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
+    background: var(--bg); margin-bottom: 10px;
+  }
+  .illus-card img { width: 100%; display: block; }
+
   .img-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .img-grid a { display: block; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--bg); }
   .img-grid img { width: 100%; height: 100px; object-fit: cover; display: block; transition: transform .2s; }
@@ -369,7 +375,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.7</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v2.8</span></div>
       <div class="lib-actions">
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -534,7 +540,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v2.7</span></h2>
+    <h2>Settings <span class="app-ver">v2.8</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div id="account-field" class="field" style="display:none">
       <label>Account</label>
@@ -664,12 +670,12 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v2.7 |', navigator.userAgent);
+console.log('Reymont v2.8 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '2.7'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '2.8'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
@@ -770,12 +776,13 @@ function limitReachedNote(elId) {
 function noteToRow(n) {
   return { id: n.id, book_id: n.bookId, cfi_range: n.cfiRange, text: n.text, para: n.para,
     lang: n.lang, translation: n.translation, wiki_html: n.wikiHtml, web_html: n.webHtml,
-    img_html: n.imgHtml, created: n.created, updated: n.updated || n.created };
+    img_html: n.imgHtml, illustration: n.illusDataUrl, created: n.created, updated: n.updated || n.created };
 }
 function rowToNote(r) {
   return { id: r.id, bookId: r.book_id, cfiRange: r.cfi_range, text: r.text, para: r.para,
     lang: r.lang, translation: r.translation || '', wikiHtml: r.wiki_html || '', webHtml: r.web_html || '',
-    imgHtml: r.img_html || '', created: Number(r.created), updated: Number(r.updated || r.created) };
+    imgHtml: r.img_html || '', illusDataUrl: r.illustration || '',
+    created: Number(r.created), updated: Number(r.updated || r.created) };
 }
 async function cloudUpsertNote(n) {
   if (!sb || !sbUser) return;
@@ -831,7 +838,7 @@ const WIKI_LANGS = { Russian: 'ru', English: 'en', Ukrainian: 'uk', Spanish: 'es
 let book = null, rendition = null, currentBookId = null, currentMeta = {}, currentPrompt = '';
 let fontSize = parseInt(localStorage.getItem(LS.fontSize) || '18', 10);
 let selGeneration = 0;          // race guard for async lookups
-let translateAbort = null, searchAbort = null;
+let translateAbort = null, searchAbort = null, illustrateAbort = null;
 let hintShown = false;
 
 const $ = id => document.getElementById(id);
@@ -1298,10 +1305,10 @@ function startLookup(text, para, cfiRange) {
     note = bookNotes.find(n => n.cfiRange === cfiRange);
     if (!note) {
       note = { id: 'n' + Date.now() + Math.random().toString(36).slice(2, 6), bookId: currentBookId,
-               cfiRange, created: Date.now(), translation: '', wikiHtml: '', webHtml: '', imgHtml: '' };
+               cfiRange, created: Date.now(), translation: '', wikiHtml: '', webHtml: '', imgHtml: '', illusDataUrl: '' };
       bookNotes.unshift(note);
       addHighlight(note);
-    } else { // повторный запрос по тому же месту — очищаем старые ответы
+    } else { // повторный запрос по тому же месту — очищаем старые ответы (иллюстрация остаётся, она платная)
       note.translation = ''; note.wikiHtml = ''; note.webHtml = ''; note.imgHtml = '';
     }
     note.text = text; note.para = para; note.lang = settings.lang; note.updated = Date.now();
@@ -1316,7 +1323,8 @@ function startLookup(text, para, cfiRange) {
     <div class="sel-quote">${esc(text)}</div>
     <div class="p-section-title">Translation · ${esc(settings.lang)}</div>
     <div id="trans-out" class="pending"><span class="spinner"></span>Translating…</div>
-    <div id="ctx-zone"></div>`;
+    <div id="ctx-zone"></div>
+    ${illusSectionHtml(note)}`;
   openPanel();
 
   if (!aiAvailable()) {
@@ -1542,6 +1550,51 @@ async function webSearch(text, gen, para, note) {
   }
 }
 
+/* ════════════════════════ AI illustration (gpt-image-2, invite-only) ════════════════════════
+   Генерируется только через встроенный AI (серверный ключ) — доступ проверяет edge-функция
+   по email. Кнопка показана всем вошедшим, сервер сам откажет, если не в списке. */
+function illusZoneInner(note) {
+  if (!note) return '';
+  if (note.illusDataUrl) {
+    return `<div class="illus-card"><img src="${note.illusDataUrl}" alt=""></div>
+      <button class="btn" onclick="requestIllustration('${note.id}')">↻ Regenerate illustration</button>`;
+  }
+  return `<button class="btn" onclick="requestIllustration('${note.id}')">🎨 Illustrate this scene</button>`;
+}
+function illusSectionHtml(note) {
+  if (!note) return '';
+  return `<div class="p-section-title">Illustration</div><div id="illus-zone">${illusZoneInner(note)}</div>`;
+}
+async function requestIllustration(noteId) {
+  const note = bookNotes.find(n => n.id === noteId);
+  if (!note) return;
+  if (!sbUser) { toast('Sign in to generate illustrations'); return; }
+  const zone = $('illus-zone');
+  if (zone) zone.innerHTML = `<div class="ctx-pending"><span class="spinner"></span>Painting the scene… this can take up to a minute.</div>`;
+  if (illustrateAbort) illustrateAbort.abort();
+  illustrateAbort = new AbortController();
+  try {
+    const res = await aiProxy({ action: 'illustrate', text: note.text, para: note.para,
+      title: currentMeta.title, author: currentMeta.author }, illustrateAbort.signal);
+    if (res.status === 403) {
+      if (zone) zone.innerHTML = `<div class="ctx-pending">🎨 Illustrations are invite-only right now.</div>`;
+      return;
+    }
+    if (!res.ok) {
+      let msg = 'HTTP ' + res.status;
+      try { msg = (await res.json()).error.message; } catch (e) {}
+      throw new Error(msg);
+    }
+    const j = await res.json();
+    if (!j.b64) throw new Error('No image returned');
+    saveNotePart(note, 'illusDataUrl', 'data:image/png;base64,' + j.b64);
+    if (zone) zone.innerHTML = illusZoneInner(note);
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    if (zone) zone.innerHTML = `<div class="p-error">Illustration failed: ${esc(err.message)}</div>`;
+  }
+}
+
 /* ════════════════════════ Highlights (сохранённые выделения) ════════════════════════ */
 let bookNotes = []; // заметки открытой книги, новые сверху
 
@@ -1578,6 +1631,7 @@ function showNote(id) {
       ${note.webHtml ? `<div id="web-out">${note.webHtml}</div>` : ''}
       <div id="img-slot">${note.imgHtml || ''}</div>
     </div>
+    ${illusSectionHtml(note)}
     <div class="note-actions">
       <button class="btn" onclick="refreshNote('${note.id}')">↻ Ask again</button>
       <button class="btn" onclick="deleteNote('${note.id}')">🗑 Delete highlight</button>
