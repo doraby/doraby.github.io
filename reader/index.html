@@ -71,14 +71,14 @@
   .modal h2 .app-ver { vertical-align: 3px; }
   .lib-sub { color: var(--muted); font-style: italic; font-size: 15px; margin-bottom: 36px; }
 
-  #dropzone {
-    border: 1.5px dashed var(--border); border-radius: 16px;
-    padding: 42px 24px; text-align: center; cursor: pointer;
-    color: var(--muted); font-size: 15.5px; transition: border-color .2s, background .2s;
-    background: var(--surface); margin-bottom: 48px;
+  .book-add .book-cover {
+    display: flex; align-items: center; justify-content: center;
+    border: 1.5px dashed var(--border); background: var(--surface);
+    box-shadow: none; color: var(--muted); font-size: 34px; font-weight: 300;
+    transition: border-color .2s, background .2s, color .2s;
   }
-  #dropzone:hover, #dropzone.drag { border-color: var(--accent-soft); background: var(--accent-bg); color: var(--accent); }
-  #dropzone .dz-icon { font-size: 28px; display: block; margin-bottom: 10px; }
+  .book-add:hover .book-cover, .book-add.drag .book-cover { border-color: var(--accent-soft); background: var(--accent-bg); color: var(--accent); transform: none; box-shadow: none; }
+  .book-add .book-meta { text-align: center; }
 
   .banner { border-radius: 12px; padding: 14px 18px; font-size: 14px; line-height: 1.55; margin: -24px 0 44px; }
   .banner.error { background: rgba(160, 58, 32, .09); color: #A03A20; border: 1px solid rgba(160, 58, 32, .25); }
@@ -384,27 +384,22 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v3.2</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v3.4</span></div>
       <div class="lib-actions">
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
       </div>
     </div>
-    <div class="lib-sub">Select a word or a paragraph while reading — you'll get a translation and context from the web.</div>
+    <div class="lib-sub">Select a word or a paragraph while reading — you'll get a translation, an interpretation, and an illustration.</div>
 
-    <div id="dropzone">
-      <span class="dz-icon">📖</span>
-      Drop an EPUB file here (zip works too)<br>or click to choose
-      <input type="file" id="file-input" accept=".epub,.zip,application/epub+zip,application/zip,application/octet-stream" hidden>
-    </div>
+    <input type="file" id="file-input" accept=".epub,.zip,application/epub+zip,application/zip,application/octet-stream" hidden>
 
     <div id="lib-error" class="banner error" style="display:none"></div>
     <div id="lib-warn" class="banner warn" style="display:none"></div>
 
     <div class="shelf-title">My shelf</div>
     <div id="books"></div>
-    <div id="lib-empty" style="display:none">Nothing here yet — add your first book.</div>
 
     <div class="lib-footer">
       <a href="/terms.html" target="_blank" rel="noopener">Terms</a>
@@ -549,7 +544,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v3.2</span></h2>
+    <h2>Settings <span class="app-ver">v3.4</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div id="account-field" class="field" style="display:none">
       <label>Account</label>
@@ -679,12 +674,12 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v3.2 |', navigator.userAgent);
+console.log('Reymont v3.4 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '3.2'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '3.4'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
@@ -974,7 +969,15 @@ async function renderLibrary() {
   const books = (await dbAll('books')).sort((a, b) => (b.lastOpened || b.added) - (a.lastOpened || a.added));
   const grid = $('books');
   grid.innerHTML = '';
-  $('lib-empty').style.display = books.length ? 'none' : 'block';
+
+  const addCard = document.createElement('div');
+  addCard.className = 'book-card book-add';
+  addCard.innerHTML = `
+    <div class="book-cover">+</div>
+    <div class="book-meta"><div class="book-title">Add a book</div></div>`;
+  addCard.addEventListener('click', () => $('file-input').click());
+  grid.appendChild(addCard);
+
   for (const b of books) {
     const card = document.createElement('div');
     card.className = 'book-card';
@@ -1761,11 +1764,15 @@ function injectIllustrations(contents) {
       if (!block) continue;
       const wrap = doc.createElement('div');
       wrap.setAttribute('data-reymont-illus', note.id);
-      wrap.style.cssText = 'margin:20px 0;border-radius:10px;overflow:hidden;box-shadow:0 4px 16px rgba(61,57,41,.18);';
+      // Умеренный размер, как книжная иллюстрация-плашка, а не полностраничная вставка —
+      // картинки у нас портретные (2:3) и на всю ширину колонки просто не влезли бы в одну
+      // страницу пагинации. break-inside:avoid просит не резать саму картинку между страницами.
+      wrap.style.cssText = 'margin:22px auto;max-width:340px;border-radius:10px;overflow:hidden;'
+        + 'box-shadow:0 4px 16px rgba(61,57,41,.18);break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid;';
       const img = doc.createElement('img');
       img.src = note.illusUrl;
       img.alt = '';
-      img.style.cssText = 'display:block;width:100%;';
+      img.style.cssText = 'display:block;width:100%;height:auto;';
       wrap.appendChild(img);
       block.insertAdjacentElement('afterend', wrap);
     } catch (e) { console.warn('inline illustration failed for', note.id, ':', e); }
@@ -1909,15 +1916,16 @@ function toggleKeyVisibility() {
 $('overlay').addEventListener('click', e => { if (e.target === $('overlay')) closeSettings(); });
 
 /* ════════════════════════ File input / drag-n-drop ════════════════════════ */
-$('dropzone').addEventListener('click', () => $('file-input').click());
 $('file-input').addEventListener('change', e => { importFile(e.target.files[0]); e.target.value = ''; });
 ['dragover', 'dragenter'].forEach(ev => document.addEventListener(ev, e => {
   e.preventDefault();
-  if ($('library').style.display !== 'none') $('dropzone').classList.add('drag');
+  const add = document.querySelector('.book-add');
+  if ($('library').style.display !== 'none' && add) add.classList.add('drag');
 }));
 ['dragleave', 'drop'].forEach(ev => document.addEventListener(ev, e => {
   e.preventDefault();
-  $('dropzone').classList.remove('drag');
+  const add = document.querySelector('.book-add');
+  if (add) add.classList.remove('drag');
 }));
 document.addEventListener('drop', e => {
   if ($('library').style.display === 'none') return;
