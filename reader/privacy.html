@@ -64,14 +64,14 @@
   Postgres) for accounts and highlight sync. If you sign in, we store:</p>
   <table>
     <tr><th>Data</th><th>Why</th></tr>
-    <tr><td>Email address</td><td>Passwordless sign-in (magic link) and, if you're a Pro
+    <tr><td>Email address</td><td>Passwordless sign-in (magic link) and, if you're a Premium
     subscriber, billing contact</td></tr>
     <tr><td>Highlights: selected text, the surrounding paragraph, translation, and any
     web/Wikipedia/image results</td><td>So a saved highlight opens instantly from cache on any
     device you sign into</td></tr>
     <tr><td>A book identifier (derived from the file name and size, not the file itself)</td>
     <td>To match highlights to the right book across devices</td></tr>
-    <tr><td>Pro subscription status and Stripe customer ID</td><td>To unlock unlimited
+    <tr><td>Premium subscription status and Stripe customer ID</td><td>To unlock unlimited
     highlights</td></tr>
   </table>
   <p>Each account can only read and write its own rows — enforced by database-level row security,
@@ -87,7 +87,7 @@
     <tr><td>Supabase</td><td>Account and highlight data described above</td><td>If you sign
     in</td></tr>
     <tr><td>Stripe</td><td>Payment details, handled entirely by Stripe — we never see your card
-    number</td><td>If you subscribe to Reymont Pro</td></tr>
+    number</td><td>If you subscribe to Reymont Premium</td></tr>
   </table>
   <p>We do not sell your data, run ads, or share it with anyone beyond what's needed to provide
   the service above.</p>
@@ -111,7 +111,7 @@
 
   <h2>8. Contact</h2>
   <p>For any privacy question or data request, use the request form inside the app (Settings →
-  Sign in → Reymont Pro modal), or reach the operator described in our
+  Sign in → Reymont Premium modal), or reach the operator described in our
   <a href="/terms.html">Terms of Service</a>.</p>
 
   <footer>
