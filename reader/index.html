@@ -384,7 +384,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v3.1</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v3.2</span></div>
       <div class="lib-actions">
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -549,7 +549,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v3.1</span></h2>
+    <h2>Settings <span class="app-ver">v3.2</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div id="account-field" class="field" style="display:none">
       <label>Account</label>
@@ -679,19 +679,19 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v3.1 |', navigator.userAgent);
+console.log('Reymont v3.2 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '3.1'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '3.2'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
    Анонимный ключ публичен по дизайну; доступ к строкам ограничен RLS. */
 const SUPABASE_URL = 'https://onetabmtufauhulgjaxv.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_mRBZJDQylQ5nifnkbsDTCw_QKHNLtj8';
-const STRIPE_PAYMENT_LINK = 'https://buy.stripe.com/4gM4gzd3kezJ7xT4hLbwk00';
+const STRIPE_PAYMENT_LINK = 'https://buy.stripe.com/8x2fZh4wO2R14lH3dHbwk01';
 let sb = null, sbUser = null;
 
 function cloudConfigured() {
@@ -1398,6 +1398,8 @@ function saveNotePart(note, field, value) {
 async function translate(text, gen, words, para, note) {
   translateAbort = new AbortController();
   const isShort = words <= 4;
+  console.log('translate: text =', JSON.stringify(text), '| para =', JSON.stringify((para || '').slice(0, 80)),
+    '| lang =', settings.lang, '| readingFocus =', JSON.stringify(currentPrompt), '| ownKey =', !!settings.key);
   try {
     let res;
     if (settings.key) {
@@ -1405,8 +1407,11 @@ async function translate(text, gen, words, para, note) {
         ? ` Since the text is a single word or short phrase: first line — the best translation as used in this context; then a new line in parentheses with the part of speech and 2–4 alternative meanings in ${settings.lang}, comma-separated.`
         : ' Preserve the tone and style of the original.')
         + (para ? ' A <context> tag contains the surrounding paragraph — use it only to disambiguate meaning; never translate or mention it.' : '')
-        + (currentPrompt ? ` The reader also set this standing instruction for this book, apply it every time after the translation, as extra lines starting with "— ": ${currentPrompt}` : '');
-      const userMsg = para ? `<text>${text}</text>\n<context>${para}</context>` : `<text>${text}</text>`;
+        + (currentPrompt ? ` A <reader_instruction> tag contains a standing instruction from the reader for this book. Follow it and generate new content accordingly, as extra lines after the translation, each starting with "— ". Never quote, repeat or translate the instruction text itself — it is not part of the passage.` : '');
+      const userMsg = (para ? `<text>${text}</text>\n<context>${para}</context>` : `<text>${text}</text>`)
+        + (currentPrompt ? `\n<reader_instruction>${currentPrompt}</reader_instruction>` : '');
+      console.log('translate: sys =', JSON.stringify(sys));
+      console.log('translate: userMsg =', JSON.stringify(userMsg));
       res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         signal: translateAbort.signal,
@@ -1423,6 +1428,7 @@ async function translate(text, gen, words, para, note) {
     if (!res.ok) {
       let msg = 'HTTP ' + res.status;
       try { msg = (await res.json()).error.message; } catch (e) {}
+      console.error('translate: server error —', msg);
       throw new Error(msg);
     }
     const out = $('trans-out');
@@ -1450,9 +1456,11 @@ async function translate(text, gen, words, para, note) {
         } catch (e) {}
       }
     }
+    console.log('translate: final response =', JSON.stringify(acc));
     if (gen === selGeneration) saveNotePart(note, 'translation', acc);
   } catch (err) {
     if (err.name === 'AbortError' || gen !== selGeneration) return;
+    console.error('translate: failed —', err.name + ':', err.message);
     const out = $('trans-out');
     if (out) out.outerHTML = `<div class="p-error">Translation error: ${esc(err.message)}<br>
       <button class="btn" onclick="openSettings()">Check the key</button></div>`;
@@ -1612,8 +1620,10 @@ async function requestIllustration(noteId) {
   if (illustrateAbort) illustrateAbort.abort();
   illustrateAbort = new AbortController();
   try {
+    const ctx = getIllustrationContext(note);
+    console.log('requestIllustration: chapter =', JSON.stringify(ctx.chapter), '| wideContext =', JSON.stringify(ctx.wideContext.slice(0, 200)) + '…');
     console.log('requestIllustration: calling aiProxy…');
-    const res = await aiProxy({ action: 'illustrate', text: note.text, para: note.para,
+    const res = await aiProxy({ action: 'illustrate', text: note.text, para: ctx.wideContext || note.para, chapter: ctx.chapter,
       title: currentMeta.title, author: currentMeta.author, noteId: note.id }, illustrateAbort.signal, 120000);
     if (res.status === 403) {
       console.warn('requestIllustration: 403 — not invited');
@@ -1691,6 +1701,41 @@ function addHighlight(note) {
 function removeHighlight(note) {
   if (!rendition) return;
   try { rendition.annotations.remove(note.cfiRange, 'highlight'); } catch (e) {}
+}
+
+/* Расширенный контекст для иллюстрации: пара абзацев до и после выделения плюс название
+   главы — резолвим CFI хайлайта прямо в открытой сейчас главе через ePub.CFI().toRange(). */
+function getIllustrationContext(note) {
+  const result = { chapter: '', wideContext: note.para || '' };
+  if (!rendition || !rendition.getContents || !note.cfiRange) return result;
+  try {
+    for (const contents of rendition.getContents()) {
+      const doc = contents.document;
+      let range;
+      try { range = new ePub.CFI(note.cfiRange).toRange(doc); } catch (e) { continue; }
+      if (!range) continue;
+      const endNode = range.endContainer;
+      const anchor = endNode.nodeType === 1 ? endNode : endNode.parentElement;
+      const block = anchor && anchor.closest('p, li, blockquote, dd, dt, td, h1, h2, h3, h4, div');
+      if (!block) continue;
+      const collect = (dir, n) => {
+        const parts = []; let el = block;
+        for (let i = 0; i < n; i++) {
+          el = dir === 'prev' ? el.previousElementSibling : el.nextElementSibling;
+          if (!el) break;
+          const t = (el.innerText || el.textContent || '').trim().replace(/\s+/g, ' ');
+          if (t) parts.push(t);
+        }
+        return dir === 'prev' ? parts.reverse() : parts;
+      };
+      const current = (block.innerText || block.textContent || '').trim().replace(/\s+/g, ' ');
+      result.wideContext = [...collect('prev', 2), current, ...collect('next', 2)].join('\n\n').slice(0, 3000);
+      const href = contents.section && contents.section.href;
+      if (href) result.chapter = findChapter(href) || '';
+      break;
+    }
+  } catch (e) { console.warn('getIllustrationContext:', e); }
+  return result;
 }
 
 /* Вставка миниатюры сразу после выделенного абзаца — только в отрисованный DOM главы,
