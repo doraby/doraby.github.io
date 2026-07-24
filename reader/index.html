@@ -384,7 +384,7 @@
 <div id="library">
   <div class="lib-inner">
     <div class="lib-header">
-      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v3.0</span></div>
+      <div class="wordmark">Reymont<span class="tail">.</span> <span class="app-ver">v3.1</span></div>
       <div class="lib-actions">
       <button class="icon-btn" onclick="openSettings()" title="Settings" aria-label="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -549,7 +549,7 @@
 <!-- ════════ Settings modal ════════ -->
 <div id="overlay">
   <div class="modal">
-    <h2>Settings <span class="app-ver">v3.0</span></h2>
+    <h2>Settings <span class="app-ver">v3.1</span></h2>
     <div class="m-sub">The key is stored only in your browser and sent only to OpenAI.</div>
     <div id="account-field" class="field" style="display:none">
       <label>Account</label>
@@ -679,12 +679,12 @@ function copyDbg() {
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fallback);
   else fallback();
 }
-console.log('Reymont v3.0 |', navigator.userAgent);
+console.log('Reymont v3.1 |', navigator.userAgent);
 </script>
 
 <script>
 /* ════════════════════════ State & settings ════════════════════════ */
-const APP_VERSION = '3.0'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
+const APP_VERSION = '3.1'; // поднимать при каждом деплое — и в двух статичных бейджах .app-ver в HTML
 
 /* ════════════════════════ Cloud sync (Supabase) ════════════════════════
    Авторизация по magic-ссылке + облачное хранение хайлайтов.
@@ -1174,14 +1174,15 @@ async function openBook(id) {
   rendition.themes.fontSize(fontSize + 'px');
   rendition.hooks.content.register(contents => {
     contents.addStylesheet('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..700;1,400..700&display=swap');
+    injectIllustrations(contents);
   });
 
+  await loadNotes(id); // до display(), чтобы картинки уже были на месте при первом рендере
   const savedCfi = localStorage.getItem(LS.pos(id));
   console.log('openBook: rendering page…');
   await withTimeout(rendition.display(savedCfi || undefined), 30000, 'rendering the page');
   console.log('openBook: page on screen ✓');
 
-  await loadNotes(id);
   bookNotes.forEach(addHighlight);
   renderNotesList();
   switchTab('toc');
@@ -1632,6 +1633,7 @@ async function requestIllustration(noteId) {
     saveNotePart(note, 'illusUrl', j.url);
     if (zone) { zone.innerHTML = illusZoneInner(note); console.log('requestIllustration: zone updated ✓'); }
     else console.warn('requestIllustration: image generated but #illus-zone was gone — not shown, but saved to the highlight');
+    refreshInlineIllustrations();
   } catch (err) {
     if (err.name === 'AbortError') { console.warn('requestIllustration: aborted/timed out'); if (zone) zone.innerHTML = `<div class="p-error">Timed out — try again.<br><button class="btn" onclick="requestIllustration('${noteId}')">↻ Retry</button></div>`; return; }
     console.error('requestIllustration: failed —', err.name + ':', err.message);
@@ -1691,6 +1693,45 @@ function removeHighlight(note) {
   try { rendition.annotations.remove(note.cfiRange, 'highlight'); } catch (e) {}
 }
 
+/* Вставка миниатюры сразу после выделенного абзаца — только в отрисованный DOM главы,
+   сам EPUB-файл не трогаем. Срабатывает при каждом рендере секции (content-хук), плюс
+   вызывается вручную сразу после генерации, чтобы картинка появилась без перелистывания. */
+function injectIllustrations(contents) {
+  const doc = contents && contents.document;
+  if (!doc) return;
+  for (const note of bookNotes) {
+    if (!note.illusUrl || !note.cfiRange) continue;
+    const existing = doc.querySelector(`[data-reymont-illus="${note.id}"]`);
+    if (existing) {
+      const img = existing.querySelector('img');
+      if (img && img.src !== note.illusUrl) img.src = note.illusUrl; // регенерация — обновляем на месте
+      continue;
+    }
+    try {
+      const range = new ePub.CFI(note.cfiRange).toRange(doc);
+      if (!range) continue;
+      const endNode = range.endContainer;
+      const anchor = endNode.nodeType === 1 ? endNode : endNode.parentElement;
+      const block = anchor && anchor.closest('p, li, blockquote, dd, dt, td, h1, h2, h3, h4, div');
+      if (!block) continue;
+      const wrap = doc.createElement('div');
+      wrap.setAttribute('data-reymont-illus', note.id);
+      wrap.style.cssText = 'margin:20px 0;border-radius:10px;overflow:hidden;box-shadow:0 4px 16px rgba(61,57,41,.18);';
+      const img = doc.createElement('img');
+      img.src = note.illusUrl;
+      img.alt = '';
+      img.style.cssText = 'display:block;width:100%;';
+      wrap.appendChild(img);
+      block.insertAdjacentElement('afterend', wrap);
+    } catch (e) { console.warn('inline illustration failed for', note.id, ':', e); }
+  }
+}
+/* Перерисовать вставки на всех сейчас отображённых страницах (обычно одна) — без перелистывания */
+function refreshInlineIllustrations() {
+  if (!rendition || !rendition.getContents) return;
+  try { rendition.getContents().forEach(injectIllustrations); } catch (e) { console.warn('refreshInlineIllustrations:', e); }
+}
+
 function showNote(id) {
   const note = bookNotes.find(n => n.id === id);
   if (!note) return;
@@ -1729,6 +1770,9 @@ async function deleteNote(id) {
   bookNotes.splice(i, 1);
   renderNotesList();
   closePanel();
+  if (rendition && rendition.getContents) {
+    try { rendition.getContents().forEach(c => { const el = c.document.querySelector(`[data-reymont-illus="${id}"]`); if (el) el.remove(); }); } catch (e) {}
+  }
 }
 
 function renderNotesList() {
