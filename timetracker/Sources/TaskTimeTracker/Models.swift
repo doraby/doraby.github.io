@@ -202,3 +202,22 @@ private func identityKey(for e: TaskEntry) -> String {
 private func identityTitle(for e: TaskEntry) -> String {
     e.domain.isEmpty ? e.appName : "\(e.appName) \u{2014} \(e.domain)"
 }
+
+/// How far outside a block's [start, end] a screenshot's timestamp can
+/// still land and count as "taken during that block" — screenshots fire
+/// 30s after a switch and blocks' `end` only updates every poll, so a
+/// little slack avoids missing an obviously-related shot by a few seconds.
+private let screenshotTolerance: TimeInterval = 15
+
+/// Screenshots taken during any of a task's blocks — this is what lets a
+/// screenshot show up directly on the task it belongs to, instead of only
+/// in the separate day-wide Screenshots tab.
+func screenshotsForGroup(_ group: TaskGroup, in screenshots: [ScreenshotItem]) -> [ScreenshotItem] {
+    guard !screenshots.isEmpty else { return [] }
+    return screenshots.filter { shot in
+        group.chunks.contains { chunk in
+            shot.timestamp >= chunk.start.addingTimeInterval(-screenshotTolerance)
+                && shot.timestamp <= chunk.end.addingTimeInterval(screenshotTolerance)
+        }
+    }
+}

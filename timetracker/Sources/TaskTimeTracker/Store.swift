@@ -59,17 +59,26 @@ final class Store: ObservableObject {
     }
 
     func loadScreenshots() {
-        let dayKey = DayKey.key(for: selectedDay)
+        screenshots = screenshotItems(dayKey: DayKey.key(for: selectedDay))
+    }
+
+    /// Screenshots for an arbitrary day, keyed like entriesFor(dateKey:).
+    /// Used by the web API to attach screenshots to the task they were
+    /// taken during, without disturbing `selectedDay`/`screenshots`.
+    func screenshotsFor(dateKey: String) -> [ScreenshotItem] {
+        screenshotItems(dayKey: dateKey)
+    }
+
+    private func screenshotItems(dayKey: String) -> [ScreenshotItem] {
         let dayDir = Store.screenshotsDirectory.appendingPathComponent(dayKey, isDirectory: true)
 
         guard let files = try? FileManager.default.contentsOfDirectory(
             at: dayDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
         ) else {
-            screenshots = []
-            return
+            return []
         }
 
-        screenshots = files
+        return files
             .filter { $0.pathExtension.lowercased() == "jpg" }
             .compactMap { url -> ScreenshotItem? in
                 let name = url.deletingPathExtension().lastPathComponent

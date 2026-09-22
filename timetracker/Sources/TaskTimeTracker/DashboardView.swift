@@ -98,6 +98,14 @@ private struct TaskGroupRow: View {
     @State private var title: String = ""
     @State private var details: String = ""
     @State private var expanded = false
+    @State private var selectedScreenshot: ScreenshotItem?
+
+    /// Screenshots taken during any of this task's blocks — ties a shot
+    /// directly to the task it belongs to instead of only appearing in the
+    /// separate day-wide Screenshots tab.
+    private var screenshots: [ScreenshotItem] {
+        screenshotsForGroup(group, in: store.screenshots)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -161,6 +169,16 @@ private struct TaskGroupRow: View {
                     }
                     .padding(.top, 4)
                 }
+
+                if !screenshots.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(screenshots) { shot in
+                            TaskThumbnail(item: shot)
+                                .onTapGesture { selectedScreenshot = shot }
+                        }
+                    }
+                    .padding(.top, 6)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -170,6 +188,9 @@ private struct TaskGroupRow: View {
         }
         .onChange(of: group.title) { title = $0 }
         .onChange(of: group.details) { details = $0 }
+        .sheet(item: $selectedScreenshot) { item in
+            ScreenshotDetailView(item: item)
+        }
     }
 
     private func chunkLabel(_ chunk: TaskEntry) -> String {
@@ -228,6 +249,36 @@ private struct ScreenshotsTab: View {
             }
             .sheet(item: $selectedScreenshot) { item in
                 ScreenshotDetailView(item: item)
+            }
+        }
+    }
+}
+
+/// Small inline thumbnail shown on a task card, for a screenshot taken
+/// during one of its blocks. Tapping opens the same full-size detail sheet
+/// used by the Screenshots tab.
+private struct TaskThumbnail: View {
+    let item: ScreenshotItem
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image = image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Rectangle().fill(Color.secondary.opacity(0.15))
+            }
+        }
+        .frame(width: 56, height: 38)
+        .clipped()
+        .cornerRadius(4)
+        .contentShape(Rectangle())
+        .onAppear {
+            DispatchQueue.global(qos: .userInitiated).async {
+                guard let img = NSImage(contentsOf: item.url) else { return }
+                DispatchQueue.main.async { self.image = img }
             }
         }
     }

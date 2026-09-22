@@ -159,15 +159,22 @@ final class WebServer {
              "duration": e.duration]
         }
 
+        let dayShots = store.screenshotsFor(dateKey: dk)
+
         // Same-titled blocks (e.g. from a rules.json match, or matching
         // "App — window") are combined into one task with its blocks kept
         // as expandable "chunks" — this is what merges scattered Chrome /
         // Terminal / Xcode blocks for the same activity into a single row.
         let groups = groupTasks(entries).map { g -> [String: Any] in
-            ["title": g.title, "details": g.details,
+            let shots = screenshotsForGroup(g, in: dayShots).map { s -> [String: Any] in
+                ["url": "/shot/\(dk)/\(s.url.lastPathComponent)",
+                 "timestamp": iso.string(from: s.timestamp)]
+            }
+            return ["title": g.title, "details": g.details,
              "start": iso.string(from: g.start), "end": iso.string(from: g.end),
              "duration": g.duration, "dominantApp": g.dominantApp,
-             "chunks": g.chunks.map(chunkJSON)]
+             "chunks": g.chunks.map(chunkJSON),
+             "screenshots": shots]
         }
 
         var totals: [String: TimeInterval] = [:]
@@ -465,6 +472,10 @@ input[type=date]{font-size:14px;padding:4px 8px;border:1px solid var(--border);
 .chunk .cx{background:none;border:none;cursor:pointer;color:var(--sec);
        font-size:13px;padding:0 4px;flex-shrink:0}
 .chunk .cx:hover{color:#ff3b30}
+.shots{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.shots img{width:64px;height:44px;object-fit:cover;border-radius:5px;cursor:pointer;
+       box-shadow:var(--shadow);transition:transform .15s}
+.shots img:hover{transform:scale(1.06)}
 </style>
 </head>
 <body>
@@ -548,6 +559,10 @@ function renderTasks(){
               <div class="dur">${fmt(ch.duration)}</div>
               <button class="cx" onclick="delChunk('${ch.id}')" title="Remove this block">&times;</button></div>`
           }).join('');
+    const shots=g.screenshots||[],
+          shotStrip=shots.length?`<div class="shots">${shots.map(s=>
+            `<img src="${s.url}" loading="lazy" onclick="openLB('${s.url}')" title="${new Date(s.timestamp).toLocaleTimeString([],{hour:'numeric',minute:'2-digit',second:'2-digit'})}">`
+          ).join('')}</div>`:'';
     return `<div class="card"><div class="ac" style="background:${c}"></div><div class="bd">
       <div class="hd">
         <input class="ti" value="${esc(g.title)}" onchange="saveGroup(${gi},this.value,null)" onkeydown="if(event.key==='Enter')this.blur()">
@@ -556,8 +571,10 @@ function renderTasks(){
       </div>
       <input class="de" value="${esc(g.details)}" placeholder="Add description\u2026" onchange="saveGroup(${gi},null,this.value)" onkeydown="if(event.key==='Enter')this.blur()">
       <div class="meta">${n} block${n===1?'':'s'} \u00b7 ${st} \u2013 ${et}
-        ${n>1?`<button class="chunk-toggle" onclick="this.closest('.bd').querySelector('.chunks').classList.toggle('on')">show blocks</button>`:''}</div>
+        ${n>1?`<button class="chunk-toggle" onclick="this.closest('.bd').querySelector('.chunks').classList.toggle('on')">show blocks</button>`:''}
+        ${shots.length?`<span>\u00b7 &#128247; ${shots.length}</span>`:''}</div>
       ${n>1?`<div class="chunks">${chunkRows}</div>`:''}
+      ${shotStrip}
     </div></div>`}).join('');
 }
 
