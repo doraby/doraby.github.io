@@ -43,9 +43,15 @@ mv -f TaskTimeTracker.app /Applications/
 open /Applications/TaskTimeTracker.app
 ```
 
-A clock icon appears in the menu bar. (For a quick test without bundling you
-can also run `swift run`, but permissions then attach to your terminal app,
-so the bundled .app is recommended.)
+A clock icon appears in the menu bar.
+
+`build-app.sh` compiles the sources directly with `swiftc` rather than
+`swift build`, since some Command Line Tools-only installations fail to
+link SwiftPM's own manifest compiler (a toolchain issue unrelated to this
+app) — `swiftc` only needs the macOS SDK, so it's more reliable. If you
+have a full Xcode install and prefer `swift build`/`swift run`, that also
+works, but permissions then attach to your terminal app instead of to the
+bundled .app.
 
 ## Permissions
 
