@@ -5,6 +5,7 @@ import Foundation
 /// usage of one app into TaskEntry blocks, RescueTime-style.
 final class Tracker {
     private let store: Store
+    private let rules: RuleEngine
     private var timer: Timer?
     private var current: TaskEntry?
 
@@ -18,8 +19,9 @@ final class Tracker {
 
     private(set) var isRunning = false
 
-    init(store: Store) {
+    init(store: Store, rules: RuleEngine) {
         self.store = store
+        self.rules = rules
     }
 
     func start() {

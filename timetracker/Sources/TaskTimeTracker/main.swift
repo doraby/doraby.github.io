@@ -3,7 +3,8 @@ import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = Store()
-    private lazy var tracker = Tracker(store: store)
+    private let ruleEngine = RuleEngine()
+    private lazy var tracker = Tracker(store: store, rules: ruleEngine)
     private let screenshotter = Screenshotter()
     private lazy var webServer = WebServer(store: store)
 
@@ -45,6 +46,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shotItem.state = UserDefaults.standard.bool(forKey: screenshotsKey) ? .on : .off
         menu.addItem(shotItem)
 
+        menu.addItem(.separator())
+        menu.addItem(withTitle: "Edit Task Rules…", action: #selector(editRules), keyEquivalent: "")
+            .target = self
+        menu.addItem(withTitle: "Reload Task Rules", action: #selector(reloadRules), keyEquivalent: "")
+            .target = self
         menu.addItem(.separator())
         menu.addItem(withTitle: "Open Data Folder", action: #selector(openDataFolder), keyEquivalent: "")
             .target = self
@@ -102,6 +108,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openDataFolder() {
         NSWorkspace.shared.open(Store.dataDirectory)
+    }
+
+    @objc private func editRules() {
+        NSWorkspace.shared.open(RuleEngine.rulesFileURL)
+    }
+
+    @objc private func reloadRules() {
+        ruleEngine.reload()
     }
 
     @objc private func quit() {

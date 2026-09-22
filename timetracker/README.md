@@ -17,11 +17,55 @@ nothing is ever uploaded anywhere.
   tasks for any day. Each block gets an automatic title
   (`App — Window title`); click a title or description to edit it. Edits are
   saved immediately.
-- **Per-app totals** — the dashboard also shows total time per application
-  and for the whole day.
+- **Automatic, specific titles via rules** — instead of the generic
+  `App — Window title`, you can define text-pattern rules (no AI, no
+  screenshots — just matching the window title macOS already reports) that
+  turn a block into something like "Building Task Tracker" or "Writing
+  customer email". See **Task rules** below.
+- **Per-app and per-category totals** — the dashboard shows total time per
+  application, per category (from your rules), and for the whole day.
 - **Optional screenshots** — toggle "Enable Screenshots" in the menu to save a
   JPEG of your main display every 5 minutes (off by default).
 - **Pause/Resume** tracking any time from the menu.
+
+## Task rules (specific task titles, no screenshots needed)
+
+The tracker only ever sees two things macOS itself already exposes: the
+frontmost app's name, and its window title (e.g. Xcode shows the file and
+project name, Safari shows the page title, Mail shows the subject/recipient).
+No AI and no screen-content reading is involved — screenshots are a fully
+separate, optional feature.
+
+Rules let you turn those window titles into specific task names. Open
+**"Edit Task Rules…"** from the menu bar — it opens
+`~/Library/Application Support/TaskTimeTracker/rules.json`, an editable JSON
+list. Each rule has:
+
+- `pattern` — a case-insensitive regular expression tested against
+  `"AppName — Window Title"`. The first matching rule wins.
+- `title` — the task title to use when it matches (optional; leave it out to
+  keep the automatic title but still tag a category).
+- `category` — an optional grouping label shown in "Time per category".
+
+The app ships with a starter file covering exactly the examples you gave:
+
+```json
+[
+  { "pattern": "(Xcode|Visual Studio Code|Cursor).*(TaskTimeTracker|timetracker)",
+    "title": "Building Task Tracker", "category": "Coding" },
+  { "pattern": "unschooler", "title": "Testing Unschooler", "category": "QA" },
+  { "pattern": "Mail.*(Compose|New Message)",
+    "title": "Writing customer email", "category": "Communication" },
+  { "pattern": "linkedin", "title": "Editing LinkedIn post", "category": "Marketing" }
+]
+```
+
+Edit these to match your real project/window-title wording (open the app you
+mean and check the exact title shown, e.g. via Mission Control or the Window
+menu, to get the pattern right), add new rules for other tasks, then click
+**"Reload Task Rules"** in the menu — no rebuild needed. Rules only apply to
+*new* blocks going forward; existing entries keep their titles until you edit
+them by hand in the dashboard.
 
 ## Where your data lives
 
