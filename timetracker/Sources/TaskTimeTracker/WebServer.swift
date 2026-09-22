@@ -121,11 +121,17 @@ final class WebServer {
             if path == "/api/categories" {
                 return putCategory(extractBody(raw))
             }
+            if path == "/api/groups" {
+                return putGroup(params, extractBody(raw))
+            }
             let prefix = "/api/entries/"
             guard path.hasPrefix(prefix) else { return resp(404, text: "Not Found") }
             return putEntry(String(path.dropFirst(prefix.count)), params, extractBody(raw))
 
         case "DELETE":
+            if path == "/api/groups" {
+                return deleteGroup(params)
+            }
             let prefix = "/api/entries/"
             guard path.hasPrefix(prefix) else { return resp(404, text: "Not Found") }
             return deleteEntry(String(path.dropFirst(prefix.count)), params)
@@ -145,14 +151,23 @@ final class WebServer {
         let entries = store.entriesFor(dateKey: dk)
         let iso = ISO8601DateFormatter()
 
-        let items: [[String: Any]] = entries.map { e in
+        func chunkJSON(_ e: TaskEntry) -> [String: Any] {
             ["id": e.id.uuidString, "appName": e.appName,
-             "windowTitle": e.windowTitle, "title": e.title,
-             "details": e.details, "url": e.url, "domain": e.domain,
-             "category": store.categoryFor(domain: e.domain),
+             "windowTitle": e.windowTitle, "url": e.url, "domain": e.domain,
              "start": iso.string(from: e.start),
              "end": iso.string(from: e.end),
              "duration": e.duration]
+        }
+
+        // Same-titled blocks (e.g. from a rules.json match, or matching
+        // "App — window") are combined into one task with its blocks kept
+        // as expandable "chunks" — this is what merges scattered Chrome /
+        // Terminal / Xcode blocks for the same activity into a single row.
+        let groups = groupTasks(entries).map { g -> [String: Any] in
+            ["title": g.title, "details": g.details,
+             "start": iso.string(from: g.start), "end": iso.string(from: g.end),
+             "duration": g.duration, "dominantApp": g.dominantApp,
+             "chunks": g.chunks.map(chunkJSON)]
         }
 
         var totals: [String: TimeInterval] = [:]
@@ -169,10 +184,11 @@ final class WebServer {
             .sorted { ($0["total"] as! TimeInterval) > ($1["total"] as! TimeInterval) }
 
         let json: [String: Any] = [
-            "entries": items,
+            "groups": groups,
             "appTotals": appTotals,
             "categoryTotals": categoryTotals,
-            "dayTotal": entries.reduce(0.0) { $0 + $1.duration }
+            "dayTotal": entries.reduce(0.0) { $0 + $1.duration },
+            "taskCount": groups.count
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: json) else {
             return resp(500, text: "JSON error")
@@ -219,6 +235,27 @@ final class WebServer {
             return resp(400, text: "Invalid request")
         }
         return store.deleteEntryFor(dateKey: dk, id: uuid)
+            ? resp(200, text: "OK") : resp(404, text: "Not found")
+    }
+
+    private func putGroup(_ p: [String: String], _ body: String) -> Data {
+        guard let dk = p["date"],
+              let bd = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: bd) as? [String: Any],
+              let oldTitle = obj["oldTitle"] as? String,
+              let newTitle = obj["title"] as? String, !newTitle.isEmpty else {
+            return resp(400, text: "Invalid request")
+        }
+        let details = obj["details"] as? String ?? ""
+        return store.renameGroupFor(dateKey: dk, oldTitle: oldTitle, newTitle: newTitle, details: details)
+            ? resp(200, text: "OK") : resp(404, text: "Not found")
+    }
+
+    private func deleteGroup(_ p: [String: String]) -> Data {
+        guard let dk = p["date"], let title = p["title"] else {
+            return resp(400, text: "Invalid request")
+        }
+        return store.deleteGroupFor(dateKey: dk, title: title)
             ? resp(200, text: "OK") : resp(404, text: "Not found")
     }
 
@@ -411,6 +448,18 @@ input[type=date]{font-size:14px;padding:4px 8px;border:1px solid var(--border);
            font-weight:500;white-space:nowrap}
 .cat-sel{font-size:12px;padding:1px 4px;border:1px solid var(--border);
          border-radius:4px;background:var(--card);color:var(--text);cursor:pointer}
+.chunk-toggle{background:none;border:none;cursor:pointer;color:var(--accent);
+       font-size:12px;padding:2px 0;font-family:inherit}
+.chunks{display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.chunks.on{display:block}
+.chunk{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--sec);
+       padding:3px 0}
+.chunk .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.chunk .lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chunk .dur{font-variant-numeric:tabular-nums;flex-shrink:0}
+.chunk .cx{background:none;border:none;cursor:pointer;color:var(--sec);
+       font-size:13px;padding:0 4px;flex-shrink:0}
+.chunk .cx:hover{color:#ff3b30}
 </style>
 </head>
 <body>
@@ -437,19 +486,7 @@ input[type=date]{font-size:14px;padding:4px 8px;border:1px solid var(--border);
   <img id="lbi" src="">
 </div>
 <script>
-let cur=new Date(),data={entries:[],appTotals:[],categoryTotals:[],dayTotal:0},shots=[];
-let cats={},availCats=[];
-const catCol={Work:'#34C759',Social:'#AF52DE',Communication:'#FFD60A',Entertainment:'#FF3B30',Learning:'#5AC8FA'};
-function catBadge(cat){if(!cat)return'';const c=catCol[cat]||'#8E8E93';
-  return `<span class="cat-badge" style="background:${c}">${esc(cat)}</span>`}
-function catSelect(domain,cur){if(!domain)return'';
-  let o='<select class="cat-sel" onchange="setCat(\''+esc(domain)+'\',this.value)">';
-  o+='<option value=""'+(cur?'':' selected')+'>—</option>';
-  availCats.forEach(c=>{o+='<option value="'+esc(c)+'"'+(c===cur?' selected':'')+'>'+esc(c)+'</option>'});
-  return o+'</select>'}
-function setCat(domain,cat){
-  fetch('/api/categories',{method:'PUT',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({domain,category:cat})}).then(()=>{loadDay();loadCats()})}
+let cur=new Date(),data={groups:[],appTotals:[],categoryTotals:[],dayTotal:0},shots=[];
 const P=['#007AFF','#34C759','#FF9500','#AF52DE','#FF2D55','#5AC8FA',
          '#5856D6','#00C7BE','#32ADE6','#A2845E','#FF3B30','#FFD60A'];
 function colr(n){let h=0;for(let i=0;i<n.length;i++)h=(h+n.charCodeAt(i))*31;return P[Math.abs(h)%P.length]}
@@ -471,9 +508,6 @@ document.querySelector('.tabs').addEventListener('click',e=>{
 
 function shiftDay(n){cur.setDate(cur.getDate()+n);loadDay(dk(cur))}
 
-function loadCats(){
-  fetch('/api/categories').then(r=>r.json()).then(d=>{cats=d.categories||{};availCats=d.available||[]});
-}
 function loadDay(key){
   if(key){const p=key.split('-');cur=new Date(+p[0],+p[1]-1,+p[2])}
   document.getElementById('dp').value=dk(cur);
@@ -482,36 +516,59 @@ function loadDay(key){
   fetch('/api/screenshots?date='+dk(cur)).then(r=>r.json()).then(d=>{shots=d;renderShots()});
 }
 
+// All chunks across all groups, for stats that look at raw blocks.
+function allChunks(){return(data.groups||[]).flatMap(g=>g.chunks)}
+
 // ---- tasks ----
+// Each row is a task (grouped by title \u2014 several Chrome/Terminal/Xcode
+// blocks for the same activity become one row) with its blocks listed
+// underneath as expandable chunks.
 function renderTasks(){
   const el=document.getElementById('tc-tasks');
   document.getElementById('tot').textContent='Total: '+fmt(data.dayTotal);
-  if(!data.entries||!data.entries.length){
+  if(!data.groups||!data.groups.length){
     el.innerHTML='<div class="empty"><div class="ico">&#128203;</div>No activity recorded for this day</div>';return}
-  const s=[...data.entries].sort((a,b)=>new Date(b.start)-new Date(a.start));
-  el.innerHTML=s.map(e=>{
-    const c=colr(e.appName),
-          st=new Date(e.start).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}),
-          et=new Date(e.end).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+  const s=[...data.groups].sort((a,b)=>new Date(b.end)-new Date(a.end));
+  el.innerHTML=s.map((g,gi)=>{
+    const c=colr(g.dominantApp),
+          st=new Date(g.start).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}),
+          et=new Date(g.end).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}),
+          n=g.chunks.length,
+          chunkRows=g.chunks.map(ch=>{
+            const label=ch.domain||ch.windowTitle||ch.appName,
+                  cst=new Date(ch.start).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}),
+                  cet=new Date(ch.end).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+            return `<div class="chunk"><div class="dot" style="background:${colr(ch.appName)}"></div>
+              <div class="lbl">${esc(ch.appName)}${label&&label!==ch.appName?' \u2014 '+esc(label):''} \u00b7 ${cst}\u2013${cet}</div>
+              <div class="dur">${fmt(ch.duration)}</div>
+              <button class="cx" onclick="delChunk('${ch.id}')" title="Remove this block">&times;</button></div>`
+          }).join('');
     return `<div class="card"><div class="ac" style="background:${c}"></div><div class="bd">
       <div class="hd">
-        <input class="ti" value="${esc(e.title)}" onchange="saveT('${e.id}',this.value,null)" onkeydown="if(event.key==='Enter')this.blur()">
-        <span class="dur">${fmt(e.duration)}</span>
-        <button class="del" onclick="delT('${e.id}')" title="Delete">&times;</button>
+        <input class="ti" value="${esc(g.title)}" onchange="saveGroup(${gi},this.value,null)" onkeydown="if(event.key==='Enter')this.blur()">
+        <span class="dur">${fmt(g.duration)}</span>
+        <button class="del" onclick="delGroup(${gi})" title="Delete task">&times;</button>
       </div>
-      <input class="de" value="${esc(e.details)}" placeholder="Add description\u2026" onchange="saveT('${e.id}',null,this.value)" onkeydown="if(event.key==='Enter')this.blur()">
-      <div class="meta">${esc(e.appName)}${e.domain?' &middot; '+esc(e.domain):''} &middot; ${st} \u2013 ${et} ${catBadge(e.category)} ${catSelect(e.domain,e.category)}</div>
+      <input class="de" value="${esc(g.details)}" placeholder="Add description\u2026" onchange="saveGroup(${gi},null,this.value)" onkeydown="if(event.key==='Enter')this.blur()">
+      <div class="meta">${n} block${n===1?'':'s'} \u00b7 ${st} \u2013 ${et}
+        ${n>1?`<button class="chunk-toggle" onclick="this.closest('.bd').querySelector('.chunks').classList.toggle('on')">show blocks</button>`:''}</div>
+      ${n>1?`<div class="chunks">${chunkRows}</div>`:''}
     </div></div>`}).join('');
 }
 
-function saveT(id,t,d){
-  const e=data.entries.find(x=>x.id===id);if(!e)return;
-  fetch('/api/entries/'+id+'?date='+dk(cur),{method:'PUT',
+function saveGroup(gi,newTitle,newDetails){
+  const g=data.groups[gi];if(!g)return;
+  fetch('/api/groups?date='+dk(cur),{method:'PUT',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({title:t!==null?t:e.title,details:d!==null?d:e.details})
+    body:JSON.stringify({oldTitle:g.title,
+      title:newTitle!==null?newTitle:g.title,
+      details:newDetails!==null?newDetails:g.details})
   }).then(()=>loadDay());
 }
-function delT(id){if(!confirm('Delete this task?'))return;
+function delGroup(gi){const g=data.groups[gi];if(!g)return;
+  if(!confirm('Delete this task and all its blocks?'))return;
+  fetch('/api/groups?date='+dk(cur)+'&title='+encodeURIComponent(g.title),{method:'DELETE'}).then(()=>loadDay())}
+function delChunk(id){
   fetch('/api/entries/'+id+'?date='+dk(cur),{method:'DELETE'}).then(()=>loadDay())}
 
 // ---- screenshots ----
@@ -535,26 +592,16 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLB()});
 // ---- statistics ----
 function renderStats(){
   const el=document.getElementById('tc-stats');
-  if(!data.entries||!data.entries.length){
+  const chunks=allChunks();
+  if(!chunks.length){
     el.innerHTML='<div class="empty"><div class="ico">&#128202;</div>No data for this day</div>';return}
-  const ua=new Set(data.entries.map(e=>e.appName)).size;
+  const ua=new Set(chunks.map(e=>e.appName)).size;
+  const taskCount=(data.groups||[]).length;
   let h=`<div class="sr">
     <div class="scard"><div class="sv">${fmt(data.dayTotal)}</div><div class="sl">Tracked</div></div>
-    <div class="scard"><div class="sv">${data.entries.length}</div><div class="sl">${data.entries.length===1?'Task':'Tasks'}</div></div>
+    <div class="scard"><div class="sv">${taskCount}</div><div class="sl">${taskCount===1?'Task':'Tasks'}</div></div>
     <div class="scard"><div class="sv">${ua}</div><div class="sl">Apps Used</div></div>
   </div>`;
-
-  if(data.categoryTotals&&data.categoryTotals.length){
-    const catTotal=data.categoryTotals.reduce((s,c)=>s+c.total,0);
-    h+='<div class="st">Time by Category</div>';
-    data.categoryTotals.forEach(c=>{
-      const pct=catTotal>0?(c.total/catTotal*100):0,cc=catCol[c.category]||'#8E8E93';
-      h+=`<div class="br"><div class="dot" style="background:${cc}"></div>
-        <div class="lbl">${esc(c.category)}</div>
-        <div class="trk"><div class="fill" style="width:${pct}%;background:${cc}"></div></div>
-        <div class="val">${fmt(c.total)}</div></div>`});
-    h+='<div style="height:24px"></div>';
-  }
 
   h+='<div class="st">Time per Application</div>';
   if(data.appTotals)data.appTotals.forEach(a=>{
@@ -565,7 +612,7 @@ function renderStats(){
       <div class="val">${fmt(a.total)}</div></div>`});
 
   h+='<div class="st" style="margin-top:24px">Activity Timeline</div>';
-  const sorted=[...data.entries].sort((a,b)=>new Date(a.start)-new Date(b.start));
+  const sorted=[...chunks].sort((a,b)=>new Date(a.start)-new Date(b.start));
   if(sorted.length){
     const ear=new Date(sorted[0].start),lat=new Date(sorted[sorted.length-1].end);
     const sH=new Date(ear);sH.setMinutes(0,0,0);
@@ -575,7 +622,7 @@ function renderStats(){
       let bl='';sorted.forEach(e=>{
         const es=new Date(e.start),ee=new Date(e.end),
               l=(es-sH)/ms*100,w=Math.max(.3,(ee-es)/ms*100),c=colr(e.appName);
-        bl+=`<div class="tl-block" style="left:${l}%;width:${w}%;background:${c}" title="${esc(e.title)}\n${fmt(e.duration)}"></div>`});
+        bl+=`<div class="tl-block" style="left:${l}%;width:${w}%;background:${c}" title="${esc(e.appName)}\n${fmt(e.duration)}"></div>`});
       h+=`<div class="tl-track">${bl}</div>`;
       const hrs=[];let c=new Date(sH);
       while(c<=eH){hrs.push(new Date(c));c.setHours(c.getHours()+1)}
@@ -587,7 +634,7 @@ function renderStats(){
   el.innerHTML=h;
 }
 
-loadCats();loadDay(dk(cur));
+loadDay(dk(cur));
 </script>
 </body>
 </html>

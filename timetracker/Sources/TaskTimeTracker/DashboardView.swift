@@ -78,27 +78,31 @@ private struct TasksTab: View {
                 Spacer()
             }
         } else {
+            // Same-titled blocks (e.g. from a rules.json match) are shown as
+            // one task row with the individual blocks listed underneath as
+            // expandable chunks, instead of a separate row per app switch.
             List {
-                ForEach(store.entries.sorted { $0.start > $1.start }) { entry in
-                    TaskRow(entry: entry, store: store, timeLabel: Self.timeLabel)
+                ForEach(store.taskGroups.sorted { $0.end > $1.end }) { group in
+                    TaskGroupRow(group: group, store: store, timeLabel: Self.timeLabel)
                 }
             }
         }
     }
 }
 
-private struct TaskRow: View {
-    let entry: TaskEntry
+private struct TaskGroupRow: View {
+    let group: TaskGroup
     let store: Store
     let timeLabel: DateFormatter
 
     @State private var title: String = ""
     @State private var details: String = ""
+    @State private var expanded = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(colorForApp(entry.appName))
+                .fill(colorForApp(group.dominantApp))
                 .frame(width: 4)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -108,14 +112,14 @@ private struct TaskRow: View {
                         .font(.body.weight(.medium))
                         .onSubmit { save() }
                     Spacer()
-                    Text(formatDuration(entry.duration))
+                    Text(formatDuration(group.duration))
                         .font(.callout.monospacedDigit())
                         .foregroundColor(.secondary)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                         .background(Color.secondary.opacity(0.1))
                         .cornerRadius(4)
-                    Button(role: .destructive) { store.deleteEntry(entry) } label: {
+                    Button(role: .destructive) { store.deleteGroup(title: group.title) } label: {
                         Image(systemName: "trash")
                     }
                     .buttonStyle(.borderless)
@@ -126,32 +130,56 @@ private struct TaskRow: View {
                     .foregroundColor(.secondary)
                     .onSubmit { save() }
                 HStack(spacing: 4) {
-                    Image(systemName: "app.fill")
-                        .font(.caption2)
-                    Text(entry.appName)
-                    if !entry.domain.isEmpty {
-                        Text("\u{00b7}")
-                        Text(entry.domain)
-                    }
+                    Text("\(group.chunks.count) block\(group.chunks.count == 1 ? "" : "s")")
                     Text("\u{00b7}")
-                    Text("\(timeLabel.string(from: entry.start)) \u{2013} \(timeLabel.string(from: entry.end))")
+                    Text("\(timeLabel.string(from: group.start)) \u{2013} \(timeLabel.string(from: group.end))")
+                    if group.chunks.count > 1 {
+                        Button(expanded ? "Hide blocks" : "Show blocks") { expanded.toggle() }
+                            .buttonStyle(.plain)
+                            .foregroundColor(.accentColor)
+                    }
                 }
                 .font(.caption)
                 .foregroundColor(.secondary)
+
+                if expanded {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(group.chunks) { chunk in
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(colorForApp(chunk.appName))
+                                    .frame(width: 6, height: 6)
+                                Text(chunkLabel(chunk))
+                                    .lineLimit(1)
+                                Spacer()
+                                Text(formatDuration(chunk.duration))
+                                    .monospacedDigit()
+                            }
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.top, 4)
+                }
             }
         }
         .padding(.vertical, 4)
         .onAppear {
-            title = entry.title
-            details = entry.details
+            title = group.title
+            details = group.details
         }
+        .onChange(of: group.title) { title = $0 }
+        .onChange(of: group.details) { details = $0 }
+    }
+
+    private func chunkLabel(_ chunk: TaskEntry) -> String {
+        let site = chunk.domain.isEmpty ? chunk.windowTitle : chunk.domain
+        let base = site.isEmpty ? chunk.appName : "\(chunk.appName) \u{2014} \(site)"
+        return "\(base) \u{00b7} \(timeLabel.string(from: chunk.start))\u{2013}\(timeLabel.string(from: chunk.end))"
     }
 
     private func save() {
-        var updated = entry
-        updated.title = title
-        updated.details = details
-        store.updateEntry(updated)
+        store.renameGroup(oldTitle: group.title, newTitle: title, details: details)
     }
 }
 
@@ -327,8 +355,8 @@ private struct StatisticsTab: View {
             )
             SummaryCard(
                 icon: "list.bullet",
-                value: "\(store.entries.count)",
-                label: store.entries.count == 1 ? "Task" : "Tasks"
+                value: "\(store.taskGroups.count)",
+                label: store.taskGroups.count == 1 ? "Task" : "Tasks"
             )
             SummaryCard(
                 icon: "app.badge",

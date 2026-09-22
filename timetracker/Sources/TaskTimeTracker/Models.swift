@@ -96,3 +96,39 @@ struct ScreenshotItem: Identifiable {
     let url: URL
     let timestamp: Date
 }
+
+/// A single task as shown in the dashboard: all of a day's tracked blocks
+/// that share the same title (e.g. from a rule.json match, or simply the
+/// same "App — window") rolled into one row, with the individual blocks
+/// kept underneath as expandable "chunks". This is what turns five separate
+/// half-minute Chrome/Terminal/Xcode blocks into one "Building Task
+/// Tracker" task broken into chunks, instead of five tiny rows.
+struct TaskGroup: Identifiable {
+    var title: String
+    /// Underlying blocks, sorted earliest first.
+    var chunks: [TaskEntry]
+
+    var id: String { title }
+    var start: Date { chunks.first?.start ?? Date() }
+    var end: Date { chunks.last?.end ?? Date() }
+    var duration: TimeInterval { chunks.reduce(0) { $0 + $1.duration } }
+    /// The single description shown/edited at the group level (kept in
+    /// sync across all chunks when edited).
+    var details: String { chunks.first?.details ?? "" }
+    /// App that accounts for the most time in this group, for the accent color.
+    var dominantApp: String {
+        var totals: [String: TimeInterval] = [:]
+        for c in chunks { totals[c.appName, default: 0] += c.duration }
+        return totals.max { $0.value < $1.value }?.key ?? chunks.first?.appName ?? ""
+    }
+}
+
+/// Groups a day's flat entry list into TaskGroups by exact title match,
+/// most recently active group first.
+func groupTasks(_ entries: [TaskEntry]) -> [TaskGroup] {
+    var byTitle: [String: [TaskEntry]] = [:]
+    for e in entries { byTitle[e.title, default: []].append(e) }
+    return byTitle
+        .map { TaskGroup(title: $0.key, chunks: $0.value.sorted { $0.start < $1.start }) }
+        .sorted { $0.end > $1.end }
+}

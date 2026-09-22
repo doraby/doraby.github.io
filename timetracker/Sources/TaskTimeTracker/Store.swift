@@ -145,6 +145,33 @@ final class Store: ObservableObject {
         entries = log.entries
     }
 
+    /// Tasks for the selected day, with same-titled blocks combined into
+    /// one row and the individual blocks kept as chunks underneath.
+    var taskGroups: [TaskGroup] { groupTasks(entries) }
+
+    /// Renames every block sharing `oldTitle` (i.e. the whole group) and
+    /// sets their shared description.
+    func renameGroup(oldTitle: String, newTitle: String, details: String) {
+        var log = load(day: selectedDay)
+        var changed = false
+        for i in log.entries.indices where log.entries[i].title == oldTitle {
+            log.entries[i].title = newTitle
+            log.entries[i].details = details
+            changed = true
+        }
+        guard changed else { return }
+        save(log, day: selectedDay)
+        entries = log.entries
+    }
+
+    /// Deletes every block in a group (i.e. the whole task, all its chunks).
+    func deleteGroup(title: String) {
+        var log = load(day: selectedDay)
+        log.entries.removeAll { $0.title == title }
+        save(log, day: selectedDay)
+        entries = log.entries
+    }
+
     /// Total time per application (qualified by domain for browsers), longest first.
     var appTotals: [(app: String, total: TimeInterval)] {
         var totals: [String: TimeInterval] = [:]
@@ -242,6 +269,38 @@ final class Store: ObservableObject {
         var log = load(day: date)
         guard log.entries.contains(where: { $0.id == id }) else { return false }
         log.entries.removeAll { $0.id == id }
+        save(log, day: date)
+        if DayKey.key(for: selectedDay) == dateKey {
+            DispatchQueue.main.async { self.entries = log.entries }
+        }
+        return true
+    }
+
+    /// Renames a whole task group (every block sharing `oldTitle`) and sets
+    /// their shared description.
+    func renameGroupFor(dateKey: String, oldTitle: String, newTitle: String, details: String) -> Bool {
+        guard let date = DayKey.formatter.date(from: dateKey) else { return false }
+        var log = load(day: date)
+        var changed = false
+        for i in log.entries.indices where log.entries[i].title == oldTitle {
+            log.entries[i].title = newTitle
+            log.entries[i].details = details
+            changed = true
+        }
+        guard changed else { return false }
+        save(log, day: date)
+        if DayKey.key(for: selectedDay) == dateKey {
+            DispatchQueue.main.async { self.entries = log.entries }
+        }
+        return true
+    }
+
+    /// Deletes a whole task group (every block sharing `title`).
+    func deleteGroupFor(dateKey: String, title: String) -> Bool {
+        guard let date = DayKey.formatter.date(from: dateKey) else { return false }
+        var log = load(day: date)
+        guard log.entries.contains(where: { $0.title == title }) else { return false }
+        log.entries.removeAll { $0.title == title }
         save(log, day: date)
         if DayKey.key(for: selectedDay) == dateKey {
             DispatchQueue.main.async { self.entries = log.entries }
