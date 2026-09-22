@@ -134,8 +134,8 @@ struct TaskGroup: Identifiable {
     }
 }
 
-/// How far apart two blocks can be and still count as "the same work
-/// session" for automatic grouping.
+/// How far apart two blocks of the SAME app/site can be and still count as
+/// one continuous task for automatic grouping.
 private let sessionGap: TimeInterval = 600  // 10 minutes
 
 /// Groups a day's flat entry list into TaskGroups, most recently active
@@ -147,53 +147,58 @@ private let sessionGap: TimeInterval = 600  // 10 minutes
 ///   e.g. every "Building Task Tracker" block (Cursor, Terminal, Chrome —
 ///   whatever matched the rule) becomes one task no matter when it happened.
 /// - Everything else (plain auto-titled blocks — most of what you get with
-///   no rules configured) is grouped by TIME PROXIMITY instead: blocks
-///   less than `sessionGap` apart become one task, regardless of which
-///   app/site each one was, because rapid switching between Cursor,
-///   Terminal and a dozen Chrome tabs is normally all the same piece of
-///   work. This is what fixes "why doesn't it show my tasks" — without a
-///   rule, there's no way to know that switching to Handshake for 5s and
-///   back to claude.ai is "the same task" except that it happened in the
-///   same few minutes, so that's the signal used.
+///   no rules configured) is grouped by APP/SITE IDENTITY, chained across
+///   time gaps up to `sessionGap`: every "Cursor" block becomes one task,
+///   every "Chrome — nordstars.localhost" block becomes a separate task,
+///   even if you were bouncing between them the whole time — a different
+///   app or a different site is always a different task. Only *returning*
+///   to the exact same app/site keeps extending its own task, so a dozen
+///   quick Cursor visits interleaved with other apps still collapse into
+///   one "Cursor" row instead of a dozen tiny ones, without also merging
+///   in whatever else you touched in between.
 func groupTasks(_ entries: [TaskEntry]) -> [TaskGroup] {
     let sorted = entries.sorted { $0.start < $1.start }
 
     var byRuleTitle: [String: [TaskEntry]] = [:]
-    var unruled: [TaskEntry] = []
+    var byIdentity: [String: [TaskEntry]] = [:]
     for e in sorted {
-        if e.ruleMatched { byRuleTitle[e.title, default: []].append(e) }
-        else { unruled.append(e) }
+        if e.ruleMatched {
+            byRuleTitle[e.title, default: []].append(e)
+        } else {
+            byIdentity[identityKey(for: e), default: []].append(e)
+        }
     }
 
     var groups = byRuleTitle.map { TaskGroup(title: $0.key, chunks: $0.value) }
 
-    var session: [TaskEntry] = []
-    func flushSession() {
-        guard !session.isEmpty else { return }
-        groups.append(TaskGroup(title: sessionTitle(for: session), chunks: session))
-        session = []
-    }
-    for e in unruled {
-        if let last = session.last, e.start.timeIntervalSince(last.end) > sessionGap {
-            flushSession()
+    for (_, chunksForIdentity) in byIdentity {
+        var session: [TaskEntry] = []
+        func flushSession() {
+            guard let first = session.first else { return }
+            groups.append(TaskGroup(title: identityTitle(for: first), chunks: session))
+            session = []
         }
-        session.append(e)
+        // Already sorted (came out of `sorted`, filtered in order).
+        for e in chunksForIdentity {
+            if let last = session.last, e.start.timeIntervalSince(last.end) > sessionGap {
+                flushSession()
+            }
+            session.append(e)
+        }
+        flushSession()
     }
-    flushSession()
 
     return groups.sorted { $0.end > $1.end }
 }
 
-/// A readable default name for a time-clustered session: the title that
-/// took the most time in it, plus a "+N more" hint if it wasn't the only
-/// thing touched. Fully editable afterwards — this is just the starting
-/// point so you don't have to name every session from scratch.
-private func sessionTitle(for chunks: [TaskEntry]) -> String {
-    var totals: [String: TimeInterval] = [:]
-    for c in chunks { totals[c.title, default: 0] += c.duration }
-    guard let dominant = totals.max(by: { $0.value < $1.value })?.key else {
-        return chunks.first?.title ?? "Untitled"
-    }
-    let distinctCount = totals.count
-    return distinctCount > 1 ? "\(dominant) (+\(distinctCount - 1) more)" : dominant
+/// What counts as "the same activity" for grouping: the same app, and — if
+/// it's a browser — the same site. Deliberately ignores the window/page
+/// title beyond that, so e.g. different Cursor files still count as one
+/// "Cursor" task; use a rule in rules.json when you want finer distinction.
+private func identityKey(for e: TaskEntry) -> String {
+    e.domain.isEmpty ? e.appName : "\(e.appName)|\(e.domain)"
+}
+
+private func identityTitle(for e: TaskEntry) -> String {
+    e.domain.isEmpty ? e.appName : "\(e.appName) \u{2014} \(e.domain)"
 }
