@@ -71,42 +71,71 @@ final class Tracker {
             closeCurrent()
         }
 
+        let url = activeTabURL(for: appName)
+        let newDomain = domainFromURL(url)
+
+        // Merge if same app AND same domain (so switching sites = new entry).
         if var entry = current, entry.appName == appName,
+           entry.domain == newDomain,
            now.timeIntervalSince(entry.end) < mergeGap {
             entry.end = now
+            if !url.isEmpty { entry.url = url }   // keep latest URL
             current = entry
             store.upsertToday(entry)
             return
         }
 
         closeCurrent()
-        let title = frontWindowTitle(pid: app.processIdentifier)
+        let autoTitle: String
+        if !newDomain.isEmpty {
+            autoTitle = "\(appName) \u{2014} \(newDomain)"
+        } else {
+            autoTitle = appName
+        }
         current = TaskEntry(
             appName: appName,
-            windowTitle: title,
-            title: TaskEntry.automaticTitle(appName: appName, windowTitle: title),
+            windowTitle: "",
+            title: autoTitle,
+            url: url,
             start: now,
             end: now
         )
         store.upsertToday(current!)
     }
 
-    /// Title of the frontmost window of the given process. Returns "" unless
-    /// the app has been granted Screen Recording permission (macOS requires
-    /// it to read other apps' window titles).
-    private func frontWindowTitle(pid: pid_t) -> String {
-        guard let info = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-        ) as? [[String: Any]] else { return "" }
+    // MARK: - Browser URL capture
 
-        for window in info {
-            guard let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t,
-                  ownerPID == pid,
-                  let layer = window[kCGWindowLayer as String] as? Int,
-                  layer == 0 else { continue }
-            return (window[kCGWindowName as String] as? String) ?? ""
+    /// Returns the active tab URL for supported browsers, or "" otherwise.
+    /// Uses osascript subprocess which handles Automation permissions more reliably.
+    private func activeTabURL(for appName: String) -> String {
+        switch appName {
+        case "Google Chrome":
+            return runOsascript(
+                "tell application \"Google Chrome\" to get URL of active tab of front window"
+            )
+        default:
+            return ""
         }
-        return ""
+    }
+
+    private func runOsascript(_ source: String) -> String {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        proc.arguments = ["-e", source]
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        do { try proc.run() } catch { return "" }
+        proc.waitUntilExit()
+        guard proc.terminationStatus == 0 else { return "" }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return (String(data: data, encoding: .utf8) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func domainFromURL(_ raw: String) -> String {
+        guard let c = URLComponents(string: raw), let host = c.host else { return "" }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
     /// Seconds since the last keyboard/mouse event anywhere in the session.

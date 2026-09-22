@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let store = Store()
     private lazy var tracker = Tracker(store: store)
     private let screenshotter = Screenshotter()
+    private lazy var webServer = WebServer(store: store)
 
     private var statusItem: NSStatusItem!
     private var dashboardWindow: NSWindow?
@@ -20,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = buildMenu()
 
         tracker.start()
+        webServer.start()
         if UserDefaults.standard.bool(forKey: screenshotsKey) {
             screenshotter.start()
         }
@@ -28,7 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
 
-        menu.addItem(withTitle: "Open Dashboard", action: #selector(openDashboard), keyEquivalent: "d")
+        menu.addItem(withTitle: "Open in Browser", action: #selector(openBrowser), keyEquivalent: "d")
+            .target = self
+        menu.addItem(withTitle: "Open Dashboard (native)", action: #selector(openDashboard), keyEquivalent: "")
             .target = self
 
         let trackItem = NSMenuItem(title: "Pause Tracking", action: #selector(toggleTracking), keyEquivalent: "")
@@ -50,11 +54,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return menu
     }
 
+    @objc private func openBrowser() {
+        if let url = URL(string: "http://localhost:\(webServer.actualPort)") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
     @objc private func openDashboard() {
         store.loadSelectedDay()
         if dashboardWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 640, height: 560),
+                contentRect: NSRect(x: 0, y: 0, width: 780, height: 620),
                 styleMask: [.titled, .closable, .resizable, .miniaturizable],
                 backing: .buffered, defer: false
             )
@@ -96,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() {
         tracker.stop()
+        webServer.stop()
         NSApp.terminate(nil)
     }
 }

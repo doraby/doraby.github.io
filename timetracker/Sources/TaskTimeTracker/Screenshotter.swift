@@ -1,8 +1,8 @@
 import Foundation
 
-/// Optionally captures a periodic screenshot of the main display using the
-/// system `screencapture` tool. Images are written only to the local
-/// Screenshots folder; nothing leaves this machine.
+/// Captures a periodic screenshot using the screencapture CLI with -x (silent).
+/// The -x flag disables the shutter sound and avoids any audio permission prompts.
+/// Images are written only to the local Screenshots folder.
 final class Screenshotter {
     private var timer: Timer?
     /// Seconds between screenshots.
@@ -36,8 +36,10 @@ final class Screenshotter {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        // -x: no sound, -t jpg: smaller files, -m: main display only
-        proc.arguments = ["-x", "-m", "-t", "jpg", file.path]
-        try? proc.run()
+        proc.arguments = ["-x", "-t", "jpg", file.path]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do { try proc.run() } catch { return }
+        proc.waitUntilExit()
     }
 }
