@@ -16,6 +16,9 @@ final class Tracker {
     /// Returning to the same app+site within this gap extends the previous
     /// block instead of creating a new one.
     private let mergeGap: TimeInterval = 180
+    /// Blocks shorter than this are discarded as noise (a momentary
+    /// window/tab focus flicker, not real activity) instead of being saved.
+    private let minDuration: TimeInterval = 3
 
     private(set) var isRunning = false
 
@@ -47,9 +50,14 @@ final class Tracker {
     }
 
     private func closeCurrent() {
-        if let entry = current {
+        guard let entry = current else { return }
+        current = nil
+        if entry.duration < minDuration {
+            // Too short to be real activity (a momentary flicker between
+            // windows) — discard rather than leave a near-zero-length row.
+            store.discardToday(id: entry.id)
+        } else {
             store.upsertToday(entry)
-            current = nil
         }
     }
 

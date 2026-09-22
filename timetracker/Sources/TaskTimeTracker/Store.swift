@@ -127,6 +127,18 @@ final class Store: ObservableObject {
         }
     }
 
+    /// Removes a block written earlier today — used when a block turns out
+    /// to be too short to count as real activity (see Tracker.minDuration).
+    func discardToday(id: UUID) {
+        let today = Date()
+        var log = load(day: today)
+        log.entries.removeAll { $0.id == id }
+        save(log, day: today)
+        if DayKey.key(for: selectedDay) == DayKey.key(for: today) {
+            entries = log.entries
+        }
+    }
+
     // MARK: - Used by the dashboard UI
 
     func updateEntry(_ entry: TaskEntry) {

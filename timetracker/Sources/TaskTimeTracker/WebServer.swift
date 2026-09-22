@@ -563,10 +563,12 @@ function renderTasks(){
 
 function saveGroup(gi,newTitle,newDetails){
   const g=data.groups[gi];if(!g)return;
+  const title=newTitle!==null?newTitle.trim():g.title;
+  if(!title){loadDay();return}   // refuse a blank title — just reload to reset the field
   fetch('/api/groups?date='+dk(cur),{method:'PUT',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({ids:g.chunks.map(c=>c.id),
-      title:newTitle!==null?newTitle:g.title,
+      title:title,
       details:newDetails!==null?newDetails:g.details})
   }).then(()=>loadDay());
 }

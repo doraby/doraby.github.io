@@ -179,7 +179,12 @@ private struct TaskGroupRow: View {
     }
 
     private func save() {
-        store.renameGroup(ids: group.chunkIDs, newTitle: title, details: details)
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            title = group.title   // refuse to save a blank title — revert the field
+            return
+        }
+        store.renameGroup(ids: group.chunkIDs, newTitle: trimmed, details: details)
     }
 }
 
