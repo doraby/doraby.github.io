@@ -13,6 +13,10 @@ struct TaskEntry: Identifiable, Codable, Equatable {
     var title: String
     /// User-editable description.
     var details: String = ""
+    /// Optional grouping label (e.g. "Coding", "Communication"), assigned by
+    /// a rule in rules.json when the block was created. Optional so old
+    /// day files without this field still decode fine.
+    var category: String? = nil
     var start: Date
     var end: Date
 

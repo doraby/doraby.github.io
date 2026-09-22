@@ -106,4 +106,12 @@ final class Store: ObservableObject {
     }
 
     var dayTotal: TimeInterval { entries.reduce(0) { $0 + $1.duration } }
+
+    /// Total time per category (from rules.json) for the selected day,
+    /// longest first. Entries with no category are grouped as "Uncategorized".
+    var categoryTotals: [(category: String, total: TimeInterval)] {
+        var totals: [String: TimeInterval] = [:]
+        for e in entries { totals[e.category ?? "Uncategorized", default: 0] += e.duration }
+        return totals.map { ($0.key, $0.value) }.sorted { $0.1 > $1.1 }
+    }
 }
