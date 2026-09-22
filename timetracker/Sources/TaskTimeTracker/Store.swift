@@ -149,14 +149,20 @@ final class Store: ObservableObject {
     /// one row and the individual blocks kept as chunks underneath.
     var taskGroups: [TaskGroup] { groupTasks(entries) }
 
-    /// Renames every block sharing `oldTitle` (i.e. the whole group) and
-    /// sets their shared description.
-    func renameGroup(oldTitle: String, newTitle: String, details: String) {
+    /// Renames a whole task group by chunk ID (not by title — a
+    /// time-clustered session's displayed title is auto-generated, not
+    /// stored on any entry, so identity has to be the actual blocks).
+    func renameGroup(ids: [UUID], newTitle: String, details: String) {
         var log = load(day: selectedDay)
+        let idSet = Set(ids)
         var changed = false
-        for i in log.entries.indices where log.entries[i].title == oldTitle {
+        for i in log.entries.indices where idSet.contains(log.entries[i].id) {
             log.entries[i].title = newTitle
             log.entries[i].details = details
+            // A manual rename is a deliberate, permanent label — treat it
+            // like a rule match so this exact title keeps grouping by name
+            // instead of drifting back into time-based session clustering.
+            log.entries[i].ruleMatched = true
             changed = true
         }
         guard changed else { return }
@@ -164,10 +170,11 @@ final class Store: ObservableObject {
         entries = log.entries
     }
 
-    /// Deletes every block in a group (i.e. the whole task, all its chunks).
-    func deleteGroup(title: String) {
+    /// Deletes every block in a group by chunk ID.
+    func deleteGroup(ids: [UUID]) {
         var log = load(day: selectedDay)
-        log.entries.removeAll { $0.title == title }
+        let idSet = Set(ids)
+        log.entries.removeAll { idSet.contains($0.id) }
         save(log, day: selectedDay)
         entries = log.entries
     }
@@ -276,15 +283,18 @@ final class Store: ObservableObject {
         return true
     }
 
-    /// Renames a whole task group (every block sharing `oldTitle`) and sets
-    /// their shared description.
-    func renameGroupFor(dateKey: String, oldTitle: String, newTitle: String, details: String) -> Bool {
+    /// Renames a whole task group by chunk ID and sets their shared
+    /// description. Marks the renamed blocks as rule-matched so this title
+    /// keeps grouping them by name from now on (see groupTasks()).
+    func renameGroupFor(dateKey: String, ids: [UUID], newTitle: String, details: String) -> Bool {
         guard let date = DayKey.formatter.date(from: dateKey) else { return false }
         var log = load(day: date)
+        let idSet = Set(ids)
         var changed = false
-        for i in log.entries.indices where log.entries[i].title == oldTitle {
+        for i in log.entries.indices where idSet.contains(log.entries[i].id) {
             log.entries[i].title = newTitle
             log.entries[i].details = details
+            log.entries[i].ruleMatched = true
             changed = true
         }
         guard changed else { return false }
@@ -295,12 +305,14 @@ final class Store: ObservableObject {
         return true
     }
 
-    /// Deletes a whole task group (every block sharing `title`).
-    func deleteGroupFor(dateKey: String, title: String) -> Bool {
+    /// Deletes a whole task group by chunk ID.
+    func deleteGroupFor(dateKey: String, ids: [UUID]) -> Bool {
         guard let date = DayKey.formatter.date(from: dateKey) else { return false }
         var log = load(day: date)
-        guard log.entries.contains(where: { $0.title == title }) else { return false }
-        log.entries.removeAll { $0.title == title }
+        let idSet = Set(ids)
+        let before = log.entries.count
+        log.entries.removeAll { idSet.contains($0.id) }
+        guard log.entries.count != before else { return false }
         save(log, day: date)
         if DayKey.key(for: selectedDay) == dateKey {
             DispatchQueue.main.async { self.entries = log.entries }

@@ -113,6 +113,7 @@ final class Tracker {
             windowTitle: windowTitle,
             title: resolvedTitle,
             url: url,
+            ruleMatched: matched?.title != nil,
             start: now,
             end: now
         )

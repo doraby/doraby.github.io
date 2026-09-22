@@ -15,6 +15,11 @@ struct TaskEntry: Identifiable, Codable, Equatable {
     var details: String = ""
     /// Active browser tab URL (empty for non-browser apps).
     var url: String = ""
+    /// True if `title` came from a rules.json match rather than the
+    /// automatic "App — window" label. Rule-matched blocks are grouped by
+    /// exact title (they were deliberately named); everything else is
+    /// grouped by time proximity instead — see groupTasks().
+    var ruleMatched: Bool = false
     var start: Date
     var end: Date
 
@@ -37,18 +42,20 @@ struct TaskEntry: Identifiable, Codable, Equatable {
         windowTitle.isEmpty ? appName : "\(appName) \u{2014} \(windowTitle)"
     }
 
-    // Custom decoder so existing JSON files without `url` still load.
+    // Custom decoder so existing JSON files without `url`/`ruleMatched` still load.
     enum CodingKeys: String, CodingKey {
-        case id, appName, windowTitle, title, details, url, start, end
+        case id, appName, windowTitle, title, details, url, ruleMatched, start, end
     }
 
     init(appName: String, windowTitle: String, title: String,
-         details: String = "", url: String = "", start: Date, end: Date) {
+         details: String = "", url: String = "", ruleMatched: Bool = false,
+         start: Date, end: Date) {
         self.appName = appName
         self.windowTitle = windowTitle
         self.title = title
         self.details = details
         self.url = url
+        self.ruleMatched = ruleMatched
         self.start = start
         self.end = end
     }
@@ -61,6 +68,7 @@ struct TaskEntry: Identifiable, Codable, Equatable {
         title = try c.decode(String.self, forKey: .title)
         details = try c.decodeIfPresent(String.self, forKey: .details) ?? ""
         url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
+        ruleMatched = try c.decodeIfPresent(Bool.self, forKey: .ruleMatched) ?? false
         start = try c.decode(Date.self, forKey: .start)
         end = try c.decode(Date.self, forKey: .end)
     }
@@ -97,18 +105,21 @@ struct ScreenshotItem: Identifiable {
     let timestamp: Date
 }
 
-/// A single task as shown in the dashboard: all of a day's tracked blocks
-/// that share the same title (e.g. from a rule.json match, or simply the
-/// same "App — window") rolled into one row, with the individual blocks
-/// kept underneath as expandable "chunks". This is what turns five separate
-/// half-minute Chrome/Terminal/Xcode blocks into one "Building Task
-/// Tracker" task broken into chunks, instead of five tiny rows.
+/// A single task as shown in the dashboard: several of a day's tracked
+/// blocks rolled into one row, with the individual blocks kept underneath
+/// as expandable "chunks". This is what turns a dozen half-minute
+/// Chrome/Terminal/Cursor blocks into one editable task instead of a dozen
+/// tiny rows — see groupTasks() for how blocks are combined.
 struct TaskGroup: Identifiable {
     var title: String
     /// Underlying blocks, sorted earliest first.
     var chunks: [TaskEntry]
 
-    var id: String { title }
+    /// Identity is the chunk IDs, not the title — the title is just a
+    /// (possibly auto-generated, possibly renamed) label, so two different
+    /// groups can display the same text and a rename must not depend on it.
+    var id: String { chunks.map { $0.id.uuidString }.joined() }
+    var chunkIDs: [UUID] { chunks.map { $0.id } }
     var start: Date { chunks.first?.start ?? Date() }
     var end: Date { chunks.last?.end ?? Date() }
     var duration: TimeInterval { chunks.reduce(0) { $0 + $1.duration } }
@@ -123,12 +134,66 @@ struct TaskGroup: Identifiable {
     }
 }
 
-/// Groups a day's flat entry list into TaskGroups by exact title match,
-/// most recently active group first.
+/// How far apart two blocks can be and still count as "the same work
+/// session" for automatic grouping.
+private let sessionGap: TimeInterval = 600  // 10 minutes
+
+/// Groups a day's flat entry list into TaskGroups, most recently active
+/// group first.
+///
+/// Two different grouping strategies, combined:
+/// - Blocks whose title came from a rules.json match are grouped by exact
+///   title, anywhere in the day — you named that activity on purpose, so
+///   e.g. every "Building Task Tracker" block (Cursor, Terminal, Chrome —
+///   whatever matched the rule) becomes one task no matter when it happened.
+/// - Everything else (plain auto-titled blocks — most of what you get with
+///   no rules configured) is grouped by TIME PROXIMITY instead: blocks
+///   less than `sessionGap` apart become one task, regardless of which
+///   app/site each one was, because rapid switching between Cursor,
+///   Terminal and a dozen Chrome tabs is normally all the same piece of
+///   work. This is what fixes "why doesn't it show my tasks" — without a
+///   rule, there's no way to know that switching to Handshake for 5s and
+///   back to claude.ai is "the same task" except that it happened in the
+///   same few minutes, so that's the signal used.
 func groupTasks(_ entries: [TaskEntry]) -> [TaskGroup] {
-    var byTitle: [String: [TaskEntry]] = [:]
-    for e in entries { byTitle[e.title, default: []].append(e) }
-    return byTitle
-        .map { TaskGroup(title: $0.key, chunks: $0.value.sorted { $0.start < $1.start }) }
-        .sorted { $0.end > $1.end }
+    let sorted = entries.sorted { $0.start < $1.start }
+
+    var byRuleTitle: [String: [TaskEntry]] = [:]
+    var unruled: [TaskEntry] = []
+    for e in sorted {
+        if e.ruleMatched { byRuleTitle[e.title, default: []].append(e) }
+        else { unruled.append(e) }
+    }
+
+    var groups = byRuleTitle.map { TaskGroup(title: $0.key, chunks: $0.value) }
+
+    var session: [TaskEntry] = []
+    func flushSession() {
+        guard !session.isEmpty else { return }
+        groups.append(TaskGroup(title: sessionTitle(for: session), chunks: session))
+        session = []
+    }
+    for e in unruled {
+        if let last = session.last, e.start.timeIntervalSince(last.end) > sessionGap {
+            flushSession()
+        }
+        session.append(e)
+    }
+    flushSession()
+
+    return groups.sorted { $0.end > $1.end }
+}
+
+/// A readable default name for a time-clustered session: the title that
+/// took the most time in it, plus a "+N more" hint if it wasn't the only
+/// thing touched. Fully editable afterwards — this is just the starting
+/// point so you don't have to name every session from scratch.
+private func sessionTitle(for chunks: [TaskEntry]) -> String {
+    var totals: [String: TimeInterval] = [:]
+    for c in chunks { totals[c.title, default: 0] += c.duration }
+    guard let dominant = totals.max(by: { $0.value < $1.value })?.key else {
+        return chunks.first?.title ?? "Untitled"
+    }
+    let distinctCount = totals.count
+    return distinctCount > 1 ? "\(dominant) (+\(distinctCount - 1) more)" : dominant
 }

@@ -119,7 +119,7 @@ private struct TaskGroupRow: View {
                         .padding(.vertical, 2)
                         .background(Color.secondary.opacity(0.1))
                         .cornerRadius(4)
-                    Button(role: .destructive) { store.deleteGroup(title: group.title) } label: {
+                    Button(role: .destructive) { store.deleteGroup(ids: group.chunkIDs) } label: {
                         Image(systemName: "trash")
                     }
                     .buttonStyle(.borderless)
@@ -179,7 +179,7 @@ private struct TaskGroupRow: View {
     }
 
     private func save() {
-        store.renameGroup(oldTitle: group.title, newTitle: title, details: details)
+        store.renameGroup(ids: group.chunkIDs, newTitle: title, details: details)
     }
 }
 

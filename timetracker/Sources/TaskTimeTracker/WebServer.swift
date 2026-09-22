@@ -130,7 +130,7 @@ final class WebServer {
 
         case "DELETE":
             if path == "/api/groups" {
-                return deleteGroup(params)
+                return deleteGroup(extractBody(raw))
             }
             let prefix = "/api/entries/"
             guard path.hasPrefix(prefix) else { return resp(404, text: "Not Found") }
@@ -242,20 +242,25 @@ final class WebServer {
         guard let dk = p["date"],
               let bd = body.data(using: .utf8),
               let obj = try? JSONSerialization.jsonObject(with: bd) as? [String: Any],
-              let oldTitle = obj["oldTitle"] as? String,
+              let idStrs = obj["ids"] as? [String],
               let newTitle = obj["title"] as? String, !newTitle.isEmpty else {
             return resp(400, text: "Invalid request")
         }
+        let ids = idStrs.compactMap { UUID(uuidString: $0) }
         let details = obj["details"] as? String ?? ""
-        return store.renameGroupFor(dateKey: dk, oldTitle: oldTitle, newTitle: newTitle, details: details)
+        return store.renameGroupFor(dateKey: dk, ids: ids, newTitle: newTitle, details: details)
             ? resp(200, text: "OK") : resp(404, text: "Not found")
     }
 
-    private func deleteGroup(_ p: [String: String]) -> Data {
-        guard let dk = p["date"], let title = p["title"] else {
+    private func deleteGroup(_ body: String) -> Data {
+        guard let bd = body.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: bd) as? [String: Any],
+              let dk = obj["date"] as? String,
+              let idStrs = obj["ids"] as? [String] else {
             return resp(400, text: "Invalid request")
         }
-        return store.deleteGroupFor(dateKey: dk, title: title)
+        let ids = idStrs.compactMap { UUID(uuidString: $0) }
+        return store.deleteGroupFor(dateKey: dk, ids: ids)
             ? resp(200, text: "OK") : resp(404, text: "Not found")
     }
 
@@ -560,14 +565,15 @@ function saveGroup(gi,newTitle,newDetails){
   const g=data.groups[gi];if(!g)return;
   fetch('/api/groups?date='+dk(cur),{method:'PUT',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({oldTitle:g.title,
+    body:JSON.stringify({ids:g.chunks.map(c=>c.id),
       title:newTitle!==null?newTitle:g.title,
       details:newDetails!==null?newDetails:g.details})
   }).then(()=>loadDay());
 }
 function delGroup(gi){const g=data.groups[gi];if(!g)return;
   if(!confirm('Delete this task and all its blocks?'))return;
-  fetch('/api/groups?date='+dk(cur)+'&title='+encodeURIComponent(g.title),{method:'DELETE'}).then(()=>loadDay())}
+  fetch('/api/groups',{method:'DELETE',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({date:dk(cur),ids:g.chunks.map(c=>c.id)})}).then(()=>loadDay())}
 function delChunk(id){
   fetch('/api/entries/'+id+'?date='+dk(cur),{method:'DELETE'}).then(()=>loadDay())}
 
