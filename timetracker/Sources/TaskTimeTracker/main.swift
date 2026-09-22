@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         statusItem.menu = buildMenu()
 
+        tracker.onNewBlock = { [weak self] in self?.screenshotter.appDidSwitch() }
         tracker.start()
         webServer.start()
         if UserDefaults.standard.bool(forKey: screenshotsKey) {
@@ -40,7 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         trackItem.target = self
         menu.addItem(trackItem)
 
-        let shotItem = NSMenuItem(title: "Enable Screenshots (every 5 min)",
+        let shotItem = NSMenuItem(title: "Enable Screenshots (30s after switching apps)",
                                   action: #selector(toggleScreenshots), keyEquivalent: "")
         shotItem.target = self
         shotItem.state = UserDefaults.standard.bool(forKey: screenshotsKey) ? .on : .off

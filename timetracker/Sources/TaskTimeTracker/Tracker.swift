@@ -19,6 +19,11 @@ final class Tracker {
 
     private(set) var isRunning = false
 
+    /// Called whenever a brand-new block starts (i.e. you switched to a
+    /// different app/site) — NOT on every tick, and not when an existing
+    /// block just gets extended. Used to trigger a screenshot 30s later.
+    var onNewBlock: (() -> Void)?
+
     init(store: Store, rules: RuleEngine) {
         self.store = store
         self.rules = rules
@@ -118,6 +123,7 @@ final class Tracker {
             end: now
         )
         store.upsertToday(current!)
+        onNewBlock?()
     }
 
     // MARK: - Window title (all apps)
