@@ -340,4 +340,36 @@ final class Store: ObservableObject {
         }
         return true
     }
+
+    // MARK: - AI enrichment (see AICron.swift)
+
+    /// Applies the AI's title/description to a group's blocks and marks
+    /// them as ai-described so they aren't reprocessed. Locks the title by
+    /// exact match going forward, same as a manual rename — appName on each
+    /// block (and its untouched autoTitle) still records what app it
+    /// actually happened in, regardless of this new title.
+    @discardableResult
+    func applyEnrichment(dateKey: String, ids: [UUID], title: String, description: String) -> Bool {
+        guard let date = DayKey.formatter.date(from: dateKey) else { return false }
+        var log = load(day: date)
+        let idSet = Set(ids)
+        var changed = false
+        for i in log.entries.indices where idSet.contains(log.entries[i].id) {
+            log.entries[i].title = title
+            if !description.isEmpty {
+                log.entries[i].details = log.entries[i].details.isEmpty
+                    ? description
+                    : log.entries[i].details + "\n\n" + description
+            }
+            log.entries[i].ruleMatched = true
+            log.entries[i].aiDescribed = true
+            changed = true
+        }
+        guard changed else { return false }
+        save(log, day: date)
+        if DayKey.key(for: selectedDay) == dateKey {
+            DispatchQueue.main.async { self.entries = log.entries }
+        }
+        return true
+    }
 }

@@ -173,6 +173,7 @@ final class WebServer {
             return ["title": g.title, "details": g.details,
              "start": iso.string(from: g.start), "end": iso.string(from: g.end),
              "duration": g.duration, "dominantApp": g.dominantApp,
+             "appsUsed": g.appsUsed,
              "chunks": g.chunks.map(chunkJSON),
              "screenshots": shots]
         }
@@ -570,7 +571,7 @@ function renderTasks(){
         <button class="del" onclick="delGroup(${gi})" title="Delete task">&times;</button>
       </div>
       <input class="de" value="${esc(g.details)}" placeholder="Add description\u2026" onchange="saveGroup(${gi},null,this.value)" onkeydown="if(event.key==='Enter')this.blur()">
-      <div class="meta">${n} block${n===1?'':'s'} \u00b7 ${st} \u2013 ${et}
+      <div class="meta">${esc((g.appsUsed||[]).join(', '))} \u00b7 ${n} block${n===1?'':'s'} \u00b7 ${st} \u2013 ${et}
         ${n>1?`<button class="chunk-toggle" onclick="this.closest('.bd').querySelector('.chunks').classList.toggle('on')">show blocks</button>`:''}
         ${shots.length?`<span>\u00b7 &#128247; ${shots.length}</span>`:''}</div>
       ${n>1?`<div class="chunks">${chunkRows}</div>`:''}

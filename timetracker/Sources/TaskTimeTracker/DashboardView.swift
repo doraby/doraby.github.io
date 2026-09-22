@@ -138,6 +138,8 @@ private struct TaskGroupRow: View {
                     .foregroundColor(.secondary)
                     .onSubmit { save() }
                 HStack(spacing: 4) {
+                    Text(group.appsUsed.joined(separator: ", "))
+                    Text("\u{00b7}")
                     Text("\(group.chunks.count) block\(group.chunks.count == 1 ? "" : "s")")
                     Text("\u{00b7}")
                     Text("\(timeLabel.string(from: group.start)) \u{2013} \(timeLabel.string(from: group.end))")

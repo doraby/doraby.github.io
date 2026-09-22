@@ -127,6 +127,7 @@ final class Tracker {
             title: resolvedTitle,
             url: url,
             ruleMatched: matched?.title != nil,
+            autoTitle: fallbackTitle,
             start: now,
             end: now
         )

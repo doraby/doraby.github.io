@@ -21,6 +21,7 @@ swiftc -O \
     -target "${ARCH}-apple-macosx13.0" \
     -framework AppKit \
     -framework SwiftUI \
+    -framework Security \
     Sources/TaskTimeTracker/*.swift \
     -o "$APP/Contents/MacOS/TaskTimeTracker"
 

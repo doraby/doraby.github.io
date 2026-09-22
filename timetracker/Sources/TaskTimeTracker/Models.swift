@@ -20,6 +20,15 @@ struct TaskEntry: Identifiable, Codable, Equatable {
     /// exact title (they were deliberately named); everything else is
     /// grouped by time proximity instead — see groupTasks().
     var ruleMatched: Bool = false
+    /// The original auto-generated "App — window/site" label, captured once
+    /// at creation and never changed afterward — kept so that even after
+    /// `title` gets rewritten (by a rule, by hand, or by the AI enrichment
+    /// pass) you can still see which real app the work happened in.
+    var autoTitle: String = ""
+    /// True once the AI screenshot-enrichment pass has already produced a
+    /// title/description for this block, so it isn't (re-)billed and
+    /// reprocessed on every 3-hour cycle.
+    var aiDescribed: Bool = false
     var start: Date
     var end: Date
 
@@ -42,13 +51,15 @@ struct TaskEntry: Identifiable, Codable, Equatable {
         windowTitle.isEmpty ? appName : "\(appName) \u{2014} \(windowTitle)"
     }
 
-    // Custom decoder so existing JSON files without `url`/`ruleMatched` still load.
+    // Custom decoder so existing JSON files without newer fields still load.
     enum CodingKeys: String, CodingKey {
-        case id, appName, windowTitle, title, details, url, ruleMatched, start, end
+        case id, appName, windowTitle, title, details, url, ruleMatched
+        case autoTitle, aiDescribed, start, end
     }
 
     init(appName: String, windowTitle: String, title: String,
          details: String = "", url: String = "", ruleMatched: Bool = false,
+         autoTitle: String = "", aiDescribed: Bool = false,
          start: Date, end: Date) {
         self.appName = appName
         self.windowTitle = windowTitle
@@ -56,6 +67,8 @@ struct TaskEntry: Identifiable, Codable, Equatable {
         self.details = details
         self.url = url
         self.ruleMatched = ruleMatched
+        self.autoTitle = autoTitle.isEmpty ? title : autoTitle
+        self.aiDescribed = aiDescribed
         self.start = start
         self.end = end
     }
@@ -69,6 +82,10 @@ struct TaskEntry: Identifiable, Codable, Equatable {
         details = try c.decodeIfPresent(String.self, forKey: .details) ?? ""
         url = try c.decodeIfPresent(String.self, forKey: .url) ?? ""
         ruleMatched = try c.decodeIfPresent(Bool.self, forKey: .ruleMatched) ?? false
+        // Old rows saved before this field existed: fall back to the title
+        // they had at save time, which was itself still auto-generated.
+        autoTitle = try c.decodeIfPresent(String.self, forKey: .autoTitle) ?? title
+        aiDescribed = try c.decodeIfPresent(Bool.self, forKey: .aiDescribed) ?? false
         start = try c.decode(Date.self, forKey: .start)
         end = try c.decode(Date.self, forKey: .end)
     }
@@ -132,6 +149,21 @@ struct TaskGroup: Identifiable {
         for c in chunks { totals[c.appName, default: 0] += c.duration }
         return totals.max { $0.value < $1.value }?.key ?? chunks.first?.appName ?? ""
     }
+    /// Every distinct app touched in this group, for display — this is
+    /// what keeps "which app this was" visible even after `title` gets
+    /// replaced with something abstract like "Coding the Time Tracker app".
+    var appsUsed: [String] {
+        var seen = Set<String>()
+        var ordered: [String] = []
+        for c in chunks.sorted(by: { $0.duration > $1.duration }) where !seen.contains(c.appName) {
+            seen.insert(c.appName)
+            ordered.append(c.appName)
+        }
+        return ordered
+    }
+    /// True once every block in this group has already been through the AI
+    /// screenshot-enrichment pass — used to skip it on later cron cycles.
+    var aiDescribed: Bool { chunks.allSatisfy { $0.aiDescribed } }
 }
 
 /// How far apart two blocks of the SAME app/site can be and still count as
