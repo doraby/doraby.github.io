@@ -67,9 +67,49 @@ final class Screenshotter {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         proc.arguments = ["-x", "-t", "jpg", file.path]
+        let errPipe = Pipe()
         proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        do { try proc.run() } catch { return }
+        proc.standardError = errPipe
+        do {
+            try proc.run()
+        } catch {
+            log("FAILED to launch screencapture: \(error)")
+            return
+        }
         proc.waitUntilExit()
+
+        let stderrText = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(),
+                                 encoding: .utf8) ?? ""
+        let fileExists = FileManager.default.fileExists(atPath: file.path)
+        if proc.terminationStatus != 0 || !fileExists {
+            // Almost always means macOS silently denied Screen Recording
+            // permission for this exact build's signature — see
+            // setup-dev-cert.sh for why that happens after a rebuild.
+            log("""
+                FAILED (exit \(proc.terminationStatus), file written: \(fileExists)). \
+                stderr: \(stderrText.isEmpty ? "(none)" : stderrText). \
+                Most likely cause: Screen Recording permission isn't currently \
+                granted to this exact build. Check System Settings > Privacy & \
+                Security > Screen Recording.
+                """)
+        } else {
+            log("OK: \(file.lastPathComponent)")
+        }
+    }
+
+    /// A plain-text log so a silent failure is actually visible — check
+    /// ~/Library/Application Support/TaskTimeTracker/screenshot-log.txt
+    /// if screenshots stop appearing.
+    private func log(_ message: String) {
+        let logURL = Store.dataDirectory.appendingPathComponent("screenshot-log.txt")
+        let line = "[\(ISO8601DateFormatter().string(from: Date()))] \(message)\n"
+        guard let data = line.data(using: .utf8) else { return }
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            handle.seekToEndOfFile()
+            handle.write(data)
+            try? handle.close()
+        } else {
+            try? data.write(to: logURL)
+        }
     }
 }

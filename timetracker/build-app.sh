@@ -40,8 +40,22 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$APP"
+DEV_CERT="TaskTimeTracker Local Dev"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$DEV_CERT"; then
+    SIGN_ID="$DEV_CERT"
+else
+    SIGN_ID="-"   # ad-hoc
+    echo
+    echo "⚠️  No persistent dev certificate found — signing ad-hoc."
+    echo "    Ad-hoc signatures change on every rebuild, so macOS will silently"
+    echo "    revoke Screen Recording / Automation permission each time you"
+    echo "    rebuild (screenshots and window-title reading will quietly stop"
+    echo "    working again). Run ./setup-dev-cert.sh once to fix this for good."
+    echo
+fi
 
-echo "Built $PWD/$APP"
+codesign --force --deep --sign "$SIGN_ID" "$APP"
+
+echo "Built $PWD/$APP (signed with: $SIGN_ID)"
 echo "Move it to /Applications and launch it, e.g.:"
 echo "  mv -f $APP /Applications/ && open /Applications/$APP"

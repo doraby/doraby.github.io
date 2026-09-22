@@ -80,12 +80,28 @@ Use "Open Data Folder" in the menu to jump there. Delete files to delete data.
 
 ## Build & run (requires Xcode or Command Line Tools)
 
+**One-time setup**, before your first build — gives the app a stable
+identity so macOS permissions survive rebuilds (see **Permissions** below
+for why this matters):
+
+```bash
+cd timetracker
+./setup-dev-cert.sh
+```
+
+Then, every time you build:
+
 ```bash
 cd timetracker
 ./build-app.sh
+rm -rf /Applications/TaskTimeTracker.app
 mv -f TaskTimeTracker.app /Applications/
 open /Applications/TaskTimeTracker.app
 ```
+
+(The `rm -rf` first matters: `mv` into an existing `TaskTimeTracker.app`
+nests the new build *inside* the old one instead of replacing it, silently
+leaving you running stale code.)
 
 A clock icon appears in the menu bar.
 
@@ -99,13 +115,27 @@ bundled .app.
 
 ## Permissions
 
-macOS requires **Screen Recording** permission for two optional features:
-reading other apps' **window titles** and taking **screenshots**. Grant it in
-*System Settings → Privacy & Security → Screen Recording* by adding
-TaskTimeTracker, then relaunch the app.
+macOS requires **Screen Recording** permission for reading other apps'
+**window titles** and for taking **screenshots**. Grant it in *System
+Settings → Privacy & Security → Screen Recording* by adding
+TaskTimeTracker, then relaunch the app. Chrome tab tracking additionally
+needs one-time **Automation** approval (macOS asks automatically the first
+time).
 
-Without that permission the app still works — tasks are titled with just the
-application name.
+Without Screen Recording permission the app still works — tasks are
+titled with just the application name, and screenshots silently do
+nothing (check `screenshot-log.txt` in the data folder if unsure).
+
+**Important:** run `./setup-dev-cert.sh` once (see above) *before*
+granting these permissions. Without it, `build-app.sh` signs the app
+"ad-hoc," and ad-hoc signatures change on every rebuild — so a permission
+you grant gets silently revoked the next time you rebuild, with no error
+and no re-prompt. This is why screenshots/window titles can appear to
+"work once, then never again." If you already hit this: run
+`setup-dev-cert.sh`, then in System Settings remove any existing
+TaskTimeTracker entries from Screen Recording (and Automation) before
+rebuilding and re-granting — the permission should then persist across
+every future rebuild.
 
 ## Start at login
 
