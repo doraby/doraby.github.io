@@ -30,6 +30,17 @@ struct DashboardView: View {
                             TaskRow(entry: entry, store: store, timeLabel: Self.timeLabel)
                         }
                     }
+                    Section("Time per category") {
+                        ForEach(store.categoryTotals, id: \.category) { item in
+                            HStack {
+                                Text(item.category)
+                                Spacer()
+                                Text(formatDuration(item.total))
+                                    .monospacedDigit()
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
                     Section("Time per application") {
                         ForEach(store.appTotals, id: \.app) { item in
                             HStack {
@@ -97,9 +108,19 @@ private struct TaskRow: View {
                 .textFieldStyle(.plain)
                 .font(.callout)
                 .foregroundColor(.secondary)
-            Text("\(entry.appName) · \(timeLabel.string(from: entry.start))–\(timeLabel.string(from: entry.end))")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            HStack(spacing: 4) {
+                Text("\(entry.appName) · \(timeLabel.string(from: entry.start))–\(timeLabel.string(from: entry.end))")
+                if let category = entry.category {
+                    Text(category)
+                        .font(.caption2.weight(.medium))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .background(Color.accentColor.opacity(0.15))
+                        .clipShape(Capsule())
+                }
+            }
+            .font(.caption)
+            .foregroundColor(.secondary)
         }
         .padding(.vertical, 4)
         .onAppear {
