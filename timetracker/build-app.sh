@@ -2,16 +2,27 @@
 # Builds TaskTimeTracker.app so macOS permissions (Screen Recording) attach to
 # the app itself rather than to your terminal. Run on your Mac:
 #   cd timetracker && ./build-app.sh
+#
+# Compiles directly with swiftc (no `swift build` / Package.swift manifest
+# involved) because some Command Line Tools-only installations fail to link
+# the SwiftPM manifest compiler itself (a toolchain bug, unrelated to this
+# app). This path only needs swiftc + the macOS SDK, which is more reliable.
 set -euo pipefail
 cd "$(dirname "$0")"
-
-swift build -c release
 
 APP=TaskTimeTracker.app
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 
-cp .build/release/TaskTimeTracker "$APP/Contents/MacOS/"
+SDK=$(xcrun --sdk macosx --show-sdk-path)
+ARCH=$(uname -m)   # arm64 on Apple Silicon, x86_64 on Intel Macs
+swiftc -O \
+    -sdk "$SDK" \
+    -target "${ARCH}-apple-macosx13.0" \
+    -framework AppKit \
+    -framework SwiftUI \
+    Sources/TaskTimeTracker/*.swift \
+    -o "$APP/Contents/MacOS/TaskTimeTracker"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
